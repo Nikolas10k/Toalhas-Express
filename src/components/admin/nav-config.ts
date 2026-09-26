@@ -37,6 +37,7 @@ export const ADMIN_NAV: NavSection[] = [
     label: 'Estoque',
     items: [
       { label: 'Visão geral', href: '/admin/estoque', permission: 'inventory.read', phase: 3 },
+      { label: 'Produtos', href: '/admin/estoque/produtos', permission: 'product.read', phase: 3 },
       { label: 'Movimentações', href: '/admin/estoque/movimentacoes', permission: 'inventory.read', phase: 3 },
       { label: 'Lavanderia', href: '/admin/estoque/lavanderia', permission: 'laundry.read', phase: 7 },
       { label: 'Perdas/Danos', href: '/admin/estoque/perdas-danos', permission: 'incident.read', phase: 6 },

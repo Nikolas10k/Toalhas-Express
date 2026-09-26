@@ -6,8 +6,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 |---|---|---|
 | 1 | Fundação: projeto, schema base, organização, auth com MFA, RBAC, RLS, auditoria, layout, jobs e outbox | ✅ Concluída — [relatório](docs/reports/FASE-01.md) |
 | 2 | Clientes: cadastro (auto cadastro com aprovação, admin, CSV), geocoding, visão 360° | ✅ Concluída — [relatório](docs/reports/FASE-02.md) |
-| 3 | Produtos, ledger de estoque (`towel_movements`) e saldo por cliente | ⏳ Próxima |
-| 4 | Pedidos, máquina de estados, reserva com lock e recorrência | Pendente |
+| 3 | Produtos, ledger de estoque (`towel_movements`) e saldo por cliente | ✅ Concluída — [relatório](docs/reports/FASE-03.md) |
+| 4 | Pedidos, máquina de estados, reserva com lock e recorrência | ⏳ Próxima |
 | 5 | Motoristas, veículos, rotas e app do motorista (PWA) | Pendente |
 | 6 | Entrega, coleta, prova, ocorrências, dano e perda | Pendente |
 | 7 | Lavanderia (`laundry_batches`) | Pendente |
@@ -50,6 +50,18 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] Configurações da organização (auto cadastro e aprovação)
 - [x] Portal: início e "Meus dados" (contato e preferências de comunicação)
 
+## Fase 3 — checklist
+
+- [x] `products` (SKU único por org, custo e preço de reposição em centavos BIGINT, estoque mínimo, ativo)
+- [x] `towel_movements` append-only com os 13 tipos da SPEC, origem → destino, cliente/pedido/rota/parada/motorista/lote, motivo, ator e idempotência
+- [x] Tabela única de transições por tipo (domínio) + validação no banco (estados válidos, cliente obrigatório)
+- [x] `stock_balances` derivado por trigger (nunca editado pelo app), sem saldo negativo (exceto override autorizado), lock de linha contra concorrência
+- [x] Estados por produto fechando com o total; saldo por cliente com última entrega e coleta
+- [x] Verificação de consistência diária (ledger × cache, saldos negativos, estoque mínimo) gerando alertas sem corrigir nada
+- [x] Ajuste manual com permissão, motivo e auditoria; ajuste grande (> 50) exige step-up
+- [x] Prévia de impacto antes de confirmar (saldos antes/depois e valor de reposição) e estorno por movimento inverso
+- [x] Telas: Estoque, Produtos, Movimentações, aba Toalhas do cliente, "Minhas toalhas" no portal
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -68,4 +80,7 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D12 | Importação em uma transação (tudo ou nada), idempotente pelo status | Nenhum registro importado pela metade; retry não duplica |
 | D13 | Anonimização mantém o registro (id) e apaga dados pessoais | Preserva integridade de pedidos e registros financeiros com retenção legal |
 | D14 | Idempotência com `pg_advisory_xact_lock` por chave | Requisições simultâneas com a mesma chave serializam antes de tocar índices do comando (ex.: CPF/CNPJ) |
+| D16 | Estoque como transferências entre estados (EXTERNAL = fora do sistema) | Cada movimento debita um estado e credita outro: a soma dos estados fecha com o total por construção |
+| D17 | Saldos em cache (`stock_balances`) mantidos só por trigger `SECURITY DEFINER` | Leitura rápida e lock de linha para reservas concorrentes; o app não escreve; consistência verificada contra o ledger |
+| D18 | Savepoints pelo driver (`tx.savepoint`) em vez de SQL manual | Bug encontrado nos testes: erro tratado dentro de savepoint manual abortava o commit |
 | D15 | Clientes cadastrados pela equipe ou importação entram ativos; auto cadastro segue a configuração | Aprovação só faz sentido para quem se cadastra sozinho |

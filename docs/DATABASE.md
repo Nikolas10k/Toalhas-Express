@@ -63,6 +63,17 @@ Helpers de política (`SECURITY DEFINER`, `search_path=''`): `app.is_active_memb
 
 `organizations.settings.customers` guarda `selfSignupEnabled` e `requireApproval` (padrões seguros: desligado / exige aprovação).
 
+## Tabelas da Fase 3
+
+| Tabela | Notas |
+|---|---|
+| `products` | SKU único por org; `cost_cents` e `replacement_price_cents` em BIGINT; `min_stock`; sem DELETE. |
+| `towel_movements` | Ledger append-only. Cada linha move `quantity` de `from_state` para `to_state` (`EXTERNAL` = fora do sistema). `customer_id` obrigatório quando envolve `WITH_CUSTOMER`. Campos de vínculo para pedido, rota, parada, motorista e lote. `idempotency_key` única. `reverses_movement_id` para estornos. `allow_negative` só com `order.override_stock`. |
+| `stock_balances` | Cache derivado por (produto, estado, cliente). Atualizado **somente** pelo trigger `app.apply_towel_movement` (SECURITY DEFINER), que trava a linha e rejeita saldo negativo (SQLSTATE `P0010`). `app_user` só lê. |
+| `system_alerts` | Alertas com `dedupe_key` (um aberto por condição): `INVENTORY_INCONSISTENT`, `NEGATIVE_BALANCE`, `LOW_STOCK`. |
+
+`app.inventory_consistency(org)` recalcula todos os saldos a partir do ledger e devolve divergências com o cache. O job diário `inventory.consistency_check` abre/resolve alertas e nunca altera saldos.
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.

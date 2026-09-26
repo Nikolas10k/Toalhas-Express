@@ -89,11 +89,8 @@ export async function insertNewCustomer(
     consentSource: data.whatsappOptIn || data.emailOptIn ? opts.consentSource : null,
   };
   try {
-    await tx`savepoint customer_insert`;
-    await insertCustomer(tx, id, organizationId, write);
-    await tx`release savepoint customer_insert`;
+    await tx.savepoint((sp) => insertCustomer(sp as unknown as Tx, id, organizationId, write));
   } catch (err) {
-    await tx`rollback to savepoint customer_insert`;
     if (isUniqueViolation(err, 'customers_org_document_uidx')) throw new ConflictError(DUPLICATE_DOCUMENT);
     throw err;
   }

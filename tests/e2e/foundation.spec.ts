@@ -132,3 +132,16 @@ test.describe('Fase 2 — clientes', () => {
     expect(res.status()).toBe(422);
   });
 });
+
+test.describe('Fase 3 — estoque', () => {
+  test('APIs de estoque exigem autenticação', async ({ request }) => {
+    for (const path of ['/api/admin/products', '/api/admin/inventory/overview', '/api/admin/inventory/movements', '/api/portal/balances']) {
+      expect((await request.get(path)).status(), path).toBe(401);
+    }
+  });
+
+  test('páginas de estoque redirecionam para o login', async ({ page }) => {
+    await page.goto('/admin/estoque/movimentacoes');
+    await expect(page).toHaveURL(/\/login\?next=/);
+  });
+});

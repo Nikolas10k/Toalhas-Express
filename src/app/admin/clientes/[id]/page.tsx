@@ -22,6 +22,9 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         invite: p.has('users.manage'),
         exportData: p.has('customer.export'),
         anonymize: p.has('customer.anonymize'),
+        inventory: p.has('inventory.read'),
+        inventoryAdjust: p.has('inventory.adjust'),
+        inventoryMove: p.has('inventory.move'),
       }}
     />
   );

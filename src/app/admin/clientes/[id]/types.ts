@@ -47,4 +47,7 @@ export interface Permissions {
   invite: boolean;
   exportData: boolean;
   anonymize: boolean;
+  inventory: boolean;
+  inventoryAdjust: boolean;
+  inventoryMove: boolean;
 }

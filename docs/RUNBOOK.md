@@ -43,6 +43,30 @@ Mesmo procedimento para `outbox_events` (`status = 'PENDING', attempts = 0, next
 
 **n8n fora do ar**: nada a fazer no app — eventos acumulam como `PENDING`/retry e são publicados quando o n8n voltar. Se passarem de `max_attempts`, reprocesse os dead letters.
 
+## Estoque
+
+- **Alerta "Saldos de estoque não conferem com o ledger"**: o ledger (`towel_movements`) é a verdade. Divergências: `select * from app.inventory_consistency('<org_id>');`. Cache divergente só ocorre por alteração manual no banco — investigue auditoria e logs do Postgres. Reconstrução do cache a partir do ledger (registrada):
+
+  ```sql
+  begin;
+  lock table public.stock_balances in exclusive mode;
+  delete from public.stock_balances where organization_id = '<org_id>';
+  insert into public.stock_balances (organization_id, product_id, state, customer_key, customer_id, quantity)
+  select organization_id, product_id, state, coalesce(customer_id, '00000000-0000-0000-0000-000000000000'), customer_id, sum(q)
+    from (
+      select organization_id, product_id, from_state as state,
+             case when from_state = 'WITH_CUSTOMER' then customer_id end as customer_id, -quantity as q
+        from public.towel_movements where organization_id = '<org_id>' and from_state <> 'EXTERNAL'
+      union all
+      select organization_id, product_id, to_state, case when to_state = 'WITH_CUSTOMER' then customer_id end, quantity
+        from public.towel_movements where organization_id = '<org_id>' and to_state <> 'EXTERNAL'
+    ) d group by 1, 2, 3, 4, 5;
+  insert into public.audit_logs (organization_id, actor_type, action, entity_type, metadata)
+  values ('<org_id>', 'SYSTEM', 'inventory.cache_rebuilt', 'organization', '{"operator":"<nome>","reason":"<motivo>"}');
+  commit;
+  ```
+- **Lançamento errado**: nunca edite o ledger — use "Estornar" em Estoque → Movimentações.
+
 ## Acesso e segurança
 
 - **Revogar token de integração**: `update public.integration_tokens set revoked_at = now() where id = '<id>';` (efeito imediato — RLS e resolução do ator checam `revoked_at`).

@@ -13,6 +13,7 @@ import {
   geocodeCustomerHandler,
   geocodePendingHandler,
 } from '@/server/modules/customers/geocoding.service';
+import { INVENTORY_CHECK_JOB, inventoryCheckHandler } from '@/server/modules/inventory/consistency.service';
 
 /** Registro central de handlers. Cada fase adiciona os seus aqui. */
 export function buildJobHandlers(): ReadonlyMap<string, JobHandler> {
@@ -20,6 +21,7 @@ export function buildJobHandlers(): ReadonlyMap<string, JobHandler> {
     [MAINTENANCE_CLEANUP_JOB, maintenanceCleanupHandler],
     [GEOCODE_CUSTOMER_JOB, geocodeCustomerHandler],
     [GEOCODE_PENDING_JOB, geocodePendingHandler],
+    [INVENTORY_CHECK_JOB, inventoryCheckHandler],
   ]);
 }
 
@@ -37,6 +39,15 @@ export async function runWorkerCycle() {
       type: MAINTENANCE_CLEANUP_JOB,
       organizationId: null,
       idempotencyKey: `${MAINTENANCE_CLEANUP_JOB}:${today}`,
+      maxAttempts: 3,
+    }),
+  );
+
+  await withSystemTransaction((tx) =>
+    enqueueJob(tx, {
+      type: INVENTORY_CHECK_JOB,
+      organizationId: null,
+      idempotencyKey: `${INVENTORY_CHECK_JOB}:${today}`,
       maxAttempts: 3,
     }),
   );
