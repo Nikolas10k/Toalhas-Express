@@ -118,3 +118,4 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D27 | Otimização chama o Google fora da transação e só aplica se as paradas não mudaram | Lock nunca fica preso esperando rede; resposta do provedor é validada (permutação exata) |
 | D28 | Service worker sem cache de dados e sem fila offline | Dados de clientes não ficam no aparelho; nenhuma ação "fantasma" é registrada depois |
 | D29 | Motorista vê dados do cliente só com a rota aberta | Minimização (LGPD): depois de concluída, o histórico da rota fica sem dados pessoais para ele |
+| D30 | Pedido confirmado (ou em separação) pode entrar direto na rota; o sistema avança PREPARING → READY → ROUTE_ASSIGNED | Operação não precisa clicar etapa por etapa; cada avanço fica no histórico com o motivo "Avançado ao montar a rota" |
