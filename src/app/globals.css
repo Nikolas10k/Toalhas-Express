@@ -35,7 +35,7 @@
   --card-foreground: oklch(0.21 0.02 255);
   --muted: oklch(0.96 0.005 250);
   --muted-foreground: oklch(0.5 0.02 255);
-  --primary: oklch(0.47 0.13 235);
+  --primary: oklch(0.52 0.13 236); /* azul da marca, escurecido p/ contraste */
   --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.95 0.01 240);
   --secondary-foreground: oklch(0.25 0.03 255);
@@ -47,18 +47,18 @@
   --warning: oklch(0.7 0.15 75);
   --border: oklch(0.91 0.008 250);
   --input: oklch(0.88 0.01 250);
-  --ring: oklch(0.55 0.13 235);
+  --ring: oklch(0.64 0.14 232);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.17 0.015 255);
+    --background: oklch(0.2 0.015 245); /* azul-grafite da logo */
     --foreground: oklch(0.95 0.005 250);
-    --card: oklch(0.21 0.015 255);
+    --card: oklch(0.25 0.018 245);
     --card-foreground: oklch(0.95 0.005 250);
     --muted: oklch(0.26 0.015 255);
     --muted-foreground: oklch(0.72 0.015 250);
-    --primary: oklch(0.68 0.13 235);
+    --primary: oklch(0.66 0.14 232); /* #0A9CD0 */
     --primary-foreground: oklch(0.15 0.02 255);
     --secondary: oklch(0.27 0.02 255);
     --secondary-foreground: oklch(0.95 0.005 250);
