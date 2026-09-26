@@ -6,5 +6,6 @@ export const metadata: Metadata = { title: 'Produtos' };
 
 export default async function ProductsPage() {
   const actor = await requirePageActor('product.read', '/admin/estoque/produtos');
-  return <ProductsManager canManage={actor.permissions.has('product.manage')} />;
+  const p = actor.permissions;
+  return <ProductsManager canManage={p.has('product.manage')} canSeeStock={p.has('inventory.read')} canEnterStock={p.has('inventory.move')} />;
 }

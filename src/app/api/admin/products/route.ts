@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { json, route } from '@/server/http/route';
-import { createProduct, listProductsForActor, productSchema } from '@/server/modules/inventory/inventory.service';
+import { createProduct, createProductSchema, listProductsForActor } from '@/server/modules/inventory/inventory.service';
 
 export const GET = route({
   auth: 'user',
@@ -12,6 +12,6 @@ export const GET = route({
 export const POST = route({
   auth: 'user',
   permission: 'product.manage',
-  body: productSchema,
+  body: createProductSchema,
   handler: async ({ actor, body }) => json(await createProduct(actor, body), 201),
 });

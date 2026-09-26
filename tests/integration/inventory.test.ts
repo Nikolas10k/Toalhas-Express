@@ -244,3 +244,20 @@ describe('estorno e consistência', () => {
     expect(open.map((a) => a.alert_type)).not.toContain('INVENTORY_INCONSISTENT');
   });
 });
+
+describe('cadastro de produto com estoque inicial', () => {
+  it('cria o produto e a entrada no ledger juntos; SKU repetido não deixa entrada solta', async () => {
+    const sku = `INI-${Date.now()}`;
+    const base = { sku, name: 'Toalha inicial', size: null, category: null, costCents: 0, replacementPriceCents: 1000, minStock: 10, active: true };
+    const { id } = await createProduct(manager, { ...base, initialQuantity: 250 });
+    const p = (await getStockOverview(manager)).products.find((x) => x.id === id)!;
+    expect(p.stock.byState.AVAILABLE).toBe(250);
+    expect(p.stock.total).toBe(250);
+    const [mv] = await sql`select movement_type, from_state, to_state, quantity from public.towel_movements where product_id = ${id}`;
+    expect(mv).toMatchObject({ movement_type: 'STOCK_ENTRY', from_state: 'EXTERNAL', to_state: 'AVAILABLE', quantity: 250 });
+
+    await expect(createProduct(manager, { ...base, initialQuantity: 5 })).rejects.toBeInstanceOf(ConflictError);
+    const [n] = await sql`select count(*)::int as n from public.towel_movements where product_id = ${id}`;
+    expect(n?.n).toBe(1);
+  });
+});

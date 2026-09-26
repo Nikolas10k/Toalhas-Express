@@ -1,11 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, PackagePlus, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/admin/page-header';
+import { StockOperationDialog } from '@/components/inventory/stock-operation-dialog';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,12 +39,21 @@ interface FormState {
   cost: string;
   replacement: string;
   minStock: string;
+  initialQuantity: string;
   active: boolean;
 }
 
-const EMPTY: FormState = { sku: '', name: '', size: '', category: '', cost: '', replacement: '', minStock: '0', active: true };
+const EMPTY: FormState = { sku: '', name: '', size: '', category: '', cost: '', replacement: '', minStock: '0', initialQuantity: '0', active: true };
 
-export function ProductsManager({ canManage }: { canManage: boolean }) {
+export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { canManage: boolean; canSeeStock: boolean; canEnterStock: boolean }) {
+  const [entryFor, setEntryFor] = useState<string | null>(null);
+  const stock = useQuery({
+    queryKey: ['inventory', 'overview'],
+    enabled: canSeeStock,
+    queryFn: ({ signal }) =>
+      apiFetch<{ products: { id: string; stock: { total: number; byState: Record<string, number> } }[] }>('/api/admin/inventory/overview', { signal }),
+  });
+  const stockById = new Map(stock.data?.products.map((p) => [p.id, p.stock]));
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -80,6 +90,7 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
             cost: centsToInput(p.costCents),
             replacement: centsToInput(p.replacementPriceCents),
             minStock: String(p.minStock),
+            initialQuantity: '0',
             active: p.active,
           },
     );
@@ -91,6 +102,8 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
     const minStock = Number(form.minStock);
     if (costCents === null || replacementPriceCents === null) return setFormError('Valores em reais inválidos. Ex.: 15,90');
     if (!Number.isInteger(minStock) || minStock < 0) return setFormError('Estoque mínimo inválido.');
+    const initialQuantity = Number(form.initialQuantity || '0');
+    if (!Number.isInteger(initialQuantity) || initialQuantity < 0) return setFormError('Quantidade inicial inválida.');
     setFormError(null);
     save.mutate({
       sku: form.sku,
@@ -101,6 +114,7 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
       replacementPriceCents,
       minStock,
       active: form.active,
+      ...(editing === 'new' && canEnterStock ? { initialQuantity } : {}),
     });
   }
 
@@ -129,6 +143,8 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
               <TH>Categoria</TH>
               <TH className="text-right">Custo</TH>
               <TH className="text-right">Reposição</TH>
+              {canSeeStock && <TH className="text-right">Disponível</TH>}
+              {canSeeStock && <TH className="text-right">Total</TH>}
               <TH className="text-right">Mínimo</TH>
               <TH>Situação</TH>
               <TH>
@@ -139,14 +155,14 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
           <TBody>
             {q.isPending && (
               <TR>
-                <TD colSpan={9}>
+                <TD colSpan={11}>
                   <Skeleton className="h-6 w-full" />
                 </TD>
               </TR>
             )}
             {q.data?.length === 0 && (
               <TR>
-                <TD colSpan={9} className="py-10 text-center text-muted-foreground">
+                <TD colSpan={11} className="py-10 text-center text-muted-foreground">
                   Nenhum produto cadastrado.
                 </TD>
               </TR>
@@ -159,9 +175,20 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
                 <TD>{p.category ?? '—'}</TD>
                 <TD className="text-right tabular-nums">{formatCents(p.costCents)}</TD>
                 <TD className="text-right tabular-nums">{formatCents(p.replacementPriceCents)}</TD>
+                {canSeeStock && (
+                  <TD className={`text-right font-medium tabular-nums ${(stockById.get(p.id)?.byState.AVAILABLE ?? 0) < p.minStock ? 'text-destructive' : ''}`}>
+                    {stockById.get(p.id)?.byState.AVAILABLE ?? 0}
+                  </TD>
+                )}
+                {canSeeStock && <TD className="text-right tabular-nums">{stockById.get(p.id)?.total ?? 0}</TD>}
                 <TD className="text-right tabular-nums">{p.minStock}</TD>
                 <TD>{p.active ? <Badge variant="success">Ativo</Badge> : <Badge variant="secondary">Inativo</Badge>}</TD>
-                <TD className="text-right">
+                <TD className="whitespace-nowrap text-right">
+                  {canEnterStock && p.active && (
+                    <Button size="sm" variant="outline" onClick={() => setEntryFor(p.id)}>
+                      <PackagePlus aria-hidden /> Dar entrada
+                    </Button>
+                  )}
                   {canManage && (
                     <Button size="sm" variant="ghost" onClick={() => open(p)}>
                       Editar
@@ -198,10 +225,20 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
             <Field id="p-min" label="Estoque mínimo (disponível)">
               <Input id="p-min" inputMode="numeric" value={form.minStock} onChange={set('minStock')} />
             </Field>
+            {editing === 'new' && canEnterStock && (
+              <Field id="p-initial" label="Quantidade inicial em estoque" hint="Toalhas que já estão disponíveis hoje. Vira uma entrada no histórico.">
+                <Input id="p-initial" inputMode="numeric" value={form.initialQuantity} onChange={set('initialQuantity')} />
+              </Field>
+            )}
             <label className="flex items-center gap-2 self-end pb-2 text-sm">
               <input type="checkbox" className="size-4" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> Ativo
             </label>
           </div>
+          {editing !== 'new' && editing !== null && (
+            <p className="text-xs text-muted-foreground">
+              A quantidade em estoque não é editada aqui: use &quot;Dar entrada&quot; na lista ou um ajuste em Estoque → Movimentar (fica tudo no histórico).
+            </p>
+          )}
           {(formError || save.error) && <Alert variant="destructive">{formError ?? describeApiError(save.error)}</Alert>}
           <div className="flex justify-end">
             <Button type="submit" disabled={save.isPending}>
@@ -210,6 +247,9 @@ export function ProductsManager({ canManage }: { canManage: boolean }) {
           </div>
         </form>
       </Dialog>
+      {entryFor && (
+        <StockOperationDialog open onClose={() => setEntryFor(null)} allowedKinds={['entry']} defaults={{ kind: 'entry', productId: entryFor }} />
+      )}
     </>
   );
 }

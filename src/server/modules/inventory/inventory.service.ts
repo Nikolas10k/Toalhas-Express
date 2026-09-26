@@ -119,6 +119,10 @@ export const productSchema = z.strictObject({
   active: z.boolean().default(true),
 });
 export const productUpdateSchema = productSchema.partial().strict();
+/** Cadastro pode já dar entrada no estoque (vira um movimento STOCK_ENTRY na mesma transação). */
+export const createProductSchema = productSchema.extend({
+  initialQuantity: z.number().int().min(0).max(100_000).default(0),
+});
 
 export function toProductDto(p: Product) {
   return { ...p, createdAt: p.createdAt.toISOString() };
@@ -137,17 +141,40 @@ export async function listPortalCatalog(actor: UserActor) {
   );
 }
 
-export async function createProduct(actor: UserActor, input: z.infer<typeof productSchema>) {
+export async function createProduct(actor: UserActor, input: z.infer<typeof productSchema> & { initialQuantity?: number }) {
   authorize(actor, 'product.manage');
+  const { initialQuantity = 0, ...product } = input;
+  if (initialQuantity > 0) authorize(actor, MOVEMENT_PERMISSION.STOCK_ENTRY);
   return withActorTransaction(toDbContext(actor), async (tx) => {
     const id = randomUUID();
     try {
-      await tx.savepoint((sp) => insertProduct(sp as unknown as Tx, id, actor.organizationId, input));
+      await tx.savepoint((sp) => insertProduct(sp as unknown as Tx, id, actor.organizationId, product));
     } catch (err) {
       if (isUniqueViolation(err)) throw new ConflictError('Já existe um produto com este SKU.');
       throw err;
     }
     await recordAudit(tx, actor, actor.organizationId, { action: 'product.created', entityType: 'product', entityId: id, after: input });
+    if (initialQuantity > 0) {
+      // Entrada pelo ledger (nunca saldo direto): produto e estoque inicial gravam juntos ou nada grava.
+      const { inserted } = await recordMovements(tx, actor, [
+        {
+          productId: id,
+          type: 'STOCK_ENTRY',
+          quantity: initialQuantity,
+          from: 'EXTERNAL',
+          to: 'AVAILABLE',
+          reason: 'Estoque inicial no cadastro do produto',
+          idempotencyKey: `product:${id}:initial`,
+        },
+      ]);
+      await recordAudit(tx, actor, actor.organizationId, {
+        action: 'inventory.stock_entry',
+        entityType: 'towel_movement',
+        entityId: inserted[0]!,
+        after: { product_id: id, type: 'STOCK_ENTRY', quantity: initialQuantity, from: 'EXTERNAL', to: 'AVAILABLE' },
+        metadata: { reason: 'Estoque inicial no cadastro do produto' },
+      });
+    }
     return { id };
   });
 }
