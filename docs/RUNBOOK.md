@@ -67,6 +67,17 @@ Mesmo procedimento para `outbox_events` (`status = 'PENDING', attempts = 0, next
   ```
 - **Lançamento errado**: nunca edite o ledger — use "Estornar" em Estoque → Movimentações.
 
+## Pedidos
+
+- **Pedido confirmado sem estoque** (alerta `STOCK_OVERRIDE`): dê entrada no estoque ou reagende/cancele o pedido; resolva o alerta depois. O saldo disponível fica negativo até lá (visível em Estoque).
+- **Recorrência não gerou pedido**: o job `orders.generate_recurring` roda no ciclo diário do worker e cobre os próximos 7 dias. Pode ser disparado de novo sem risco (a ocorrência regra+data é única):
+  ```sql
+  insert into public.jobs (organization_id, type, payload) values (null, 'orders.generate_recurring', '{}');
+  ```
+  Clientes não ativos são pulados (nada é gerado para eles).
+- **Reserva de um pedido**: `select product_id, sum(case when to_state = 'RESERVED' then quantity else -quantity end) from public.towel_movements where order_id = '<id>' and 'RESERVED' in (from_state, to_state) group by 1;`
+- **Rascunhos do n8n** aparecem com status "Rascunho" em Pedidos; aprovar vira NEW, depois confirmar reserva o estoque.
+
 ## Acesso e segurança
 
 - **Revogar token de integração**: `update public.integration_tokens set revoked_at = now() where id = '<id>';` (efeito imediato — RLS e resolução do ator checam `revoked_at`).

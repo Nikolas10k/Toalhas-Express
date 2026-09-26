@@ -18,13 +18,13 @@ import type { CustomerUpdateData } from '@/lib/validation/customers';
 import { AuditTab } from './audit-tab';
 import { CommunicationTab } from './communication-tab';
 import { LgpdActions } from './lgpd-actions';
+import { OrdersTab } from './orders-tab';
 import { StatusActions } from './status-actions';
 import { SummaryTab } from './summary-tab';
 import { TowelsTab } from './towels-tab';
 import type { Customer360Data, CustomerDetail, Permissions } from './types';
 
 const FUTURE_TABS: Record<string, { label: string; phase: number; text: string }> = {
-  pedidos: { label: 'Pedidos', phase: 4, text: 'Pedidos de entrega e coleta do cliente.' },
   entregas: { label: 'Entregas/Coletas', phase: 6, text: 'Histórico de entregas e coletas com prova.' },
   contrato: { label: 'Contrato', phase: 8, text: 'Contrato, franquia e regras de cobrança.' },
   financeiro: { label: 'Financeiro', phase: 9, text: 'Cobranças, pagamentos e inadimplência.' },
@@ -88,6 +88,7 @@ export function Customer360({ id, can }: { id: string; can: Permissions }) {
   const anonymized = Boolean(c.anonymizedAt);
   const tabs = [
     { id: 'resumo', label: 'Resumo' },
+    ...(can.orders ? [{ id: 'pedidos', label: 'Pedidos' }] : []),
     ...(can.inventory ? [{ id: 'toalhas', label: 'Toalhas' }] : []),
     ...Object.entries(FUTURE_TABS).map(([tid, t]) => ({ id: tid, label: t.label })),
     { id: 'comunicacao', label: 'Comunicação' },
@@ -170,6 +171,7 @@ export function Customer360({ id, can }: { id: string; can: Permissions }) {
             canMove={can.inventoryMove && !anonymized}
           />
         )}
+        {tab === 'pedidos' && can.orders && <OrdersTab customerId={id} canCreate={can.orderCreate && c.status === 'active' && !anonymized} />}
         {tab === 'comunicacao' && <CommunicationTab customer={c} />}
         {tab === 'auditoria' && can.audit && <AuditTab customerId={id} />}
       </div>

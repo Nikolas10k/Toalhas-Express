@@ -74,6 +74,18 @@ Helpers de política (`SECURITY DEFINER`, `search_path=''`): `app.is_active_memb
 
 `app.inventory_consistency(org)` recalcula todos os saldos a partir do ledger e devolve divergências com o cache. O job diário `inventory.consistency_check` abre/resolve alertas e nunca altera saldos.
 
+## Tabelas da Fase 4
+
+| Tabela | Notas |
+|---|---|
+| `order_counters` | Próximo número por org; `app.next_order_number(org)` (SECURITY DEFINER) incrementa com lock de linha. |
+| `orders` | `number` único por org; `order_type` DELIVERY/COLLECTION/DELIVERY_AND_COLLECTION; 12 status da SPEC §6; `scheduled_date` (DATE, agenda em America/Sao_Paulo) + janela `TIME`; `address` (JSONB, cópia do cadastro na criação) e lat/lng; `source` ADMIN/PORTAL/INTEGRATION/RECURRENCE; `recurring_rule_id` + `occurrence_date` com índice único (sem duplicar recorrência); `stock_override`; `route_id`/`driver_id` para a Fase 5. Sem DELETE. |
+| `order_items` | Quantidades de entrega e coleta por produto (único por pedido). |
+| `order_status_history` | Append-only: de → para, motivo, metadados (nova data, reservado/liberado, override), ator. |
+| `recurring_order_rules` | Dias ISO (1 = seg … 7 = dom), janela, itens (JSONB), vigência e ativo. |
+
+A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION_RELEASE` com `order_id`. Chaves de idempotência dos movimentos: `order:{id}:reserve|release:{tag}:{produto}`.
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.
@@ -82,6 +94,7 @@ Helpers de política (`SECURITY DEFINER`, `search_path=''`): `app.is_active_memb
 - `audit_logs` INSERT exige que `actor_type/actor_id` sejam os do próprio ator (não dá para auditar em nome de outro).
 - `jobs`/`outbox_events`: app_user só insere na própria org e só enxerga a coluna `idempotency_key` (necessária para `ON CONFLICT`).
 - `customers`: equipe com `customer.read`/`customer.update`; usuário do portal (`portal.access`) só enxerga e altera os clientes vinculados a ele em `customer_users`. O service restringe as colunas que o cliente pode alterar (contato e preferências).
+- `orders` e derivados: equipe com `order.read` (escrita com `order.create`/`order.update`/`order.cancel`; `order.create_draft` só cria DRAFT); portal só os pedidos dos clientes vinculados; token de integração só enxerga os rascunhos que ele mesmo criou.
 - App do motorista ganha políticas específicas (vínculo com rotas atribuídas) na Fase 5.
 
 ## Testes de banco

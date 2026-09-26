@@ -145,3 +145,30 @@ test.describe('Fase 3 — estoque', () => {
     await expect(page).toHaveURL(/\/login\?next=/);
   });
 });
+
+test.describe('Fase 4 — pedidos', () => {
+  test('APIs de pedidos exigem autenticação', async ({ request }) => {
+    for (const path of ['/api/admin/orders', '/api/admin/order-recurrences', '/api/portal/orders', '/api/portal/products']) {
+      expect((await request.get(path)).status(), path).toBe(401);
+    }
+  });
+
+  test('integração n8n exige token Bearer válido', async ({ request, baseURL }) => {
+    const body = { type: 'DELIVERY', scheduledDate: '2030-01-01', items: [] };
+    const none = await request.post('/api/integration/v1/orders', { data: body, headers: { origin: baseURL! } });
+    expect(none.status()).toBe(401);
+    const wrong = await request.post('/api/integration/v1/orders', {
+      data: body,
+      headers: { authorization: 'Bearer tx_invalido_123456789', 'idempotency-key': 'e2e-key-123456' },
+    });
+    expect(wrong.status()).toBe(401);
+    expect(JSON.stringify(await wrong.json())).not.toMatch(/at .*\.(js|ts):\d+/);
+  });
+
+  test('páginas de pedidos redirecionam para o login', async ({ page }) => {
+    for (const path of ['/admin/pedidos', '/admin/pedidos/recorrencias', '/portal/pedidos']) {
+      await page.goto(path);
+      await expect(page, path).toHaveURL(/\/login\?next=/);
+    }
+  });
+});

@@ -50,4 +50,6 @@ export interface Permissions {
   inventory: boolean;
   inventoryAdjust: boolean;
   inventoryMove: boolean;
+  orders: boolean;
+  orderCreate: boolean;
 }

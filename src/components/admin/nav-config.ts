@@ -21,6 +21,7 @@ export const ADMIN_NAV: NavSection[] = [
     label: 'Cadastros',
     items: [
       { label: 'Pedidos', href: '/admin/pedidos', permission: 'order.read', phase: 4 },
+      { label: 'Recorrências', href: '/admin/pedidos/recorrencias', permission: 'order.read', phase: 4 },
       { label: 'Clientes', href: '/admin/clientes', permission: 'customer.read', phase: 2 },
       { label: 'Contratos', href: '/admin/contratos', permission: 'contract.read', phase: 8 },
     ],

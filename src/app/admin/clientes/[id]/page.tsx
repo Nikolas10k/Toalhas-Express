@@ -25,6 +25,8 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         inventory: p.has('inventory.read'),
         inventoryAdjust: p.has('inventory.adjust'),
         inventoryMove: p.has('inventory.move'),
+        orders: p.has('order.read'),
+        orderCreate: p.has('order.create'),
       }}
     />
   );

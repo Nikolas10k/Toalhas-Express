@@ -129,6 +129,14 @@ export async function listProductsForActor(actor: AuthenticatedActor, includeIna
   return withActorTransaction(toDbContext(actor), async (tx) => (await listProducts(tx, { includeInactive })).map(toProductDto));
 }
 
+/** Catálogo do portal: só o necessário para pedir (sem custos nem preço de reposição). */
+export async function listPortalCatalog(actor: UserActor) {
+  authorize(actor, 'portal.access');
+  return withActorTransaction(toDbContext(actor), async (tx) =>
+    (await listProducts(tx, { includeInactive: false })).map((p) => ({ id: p.id, sku: p.sku, name: p.name })),
+  );
+}
+
 export async function createProduct(actor: UserActor, input: z.infer<typeof productSchema>) {
   authorize(actor, 'product.manage');
   return withActorTransaction(toDbContext(actor), async (tx) => {

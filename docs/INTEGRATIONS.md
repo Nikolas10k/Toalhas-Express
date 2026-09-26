@@ -41,7 +41,9 @@ O n8n é **orquestrador, não fonte de verdade**: não acessa o banco, não rece
 - Header `Authorization: Bearer txi_...` (token INTEGRATION) e `Idempotency-Key` em toda chamada de escrita.
 - `GET /api/integration/v1/whoami` — valida o token.
 - `POST /api/internal/jobs/run` — dispara um ciclo do worker (exige `jobs.run`).
-- Próximas fases: criação de pedido `DRAFT`, callback de status de mensagem.
+- `POST /api/integration/v1/orders` — cria pedido **DRAFT** (permissão `order.create_draft`, `Idempotency-Key` obrigatório). Corpo: `{ customerId? | customerPhone?, type, scheduledDate: "YYYY-MM-DD", windowStart?, windowEnd?, items: [{ productId, deliveryQuantity, collectionQuantity }], notes? }`. Resposta `201 { id, number, status: "DRAFT", replayed: false }`; retry com a mesma chave devolve `200` com o mesmo pedido e `replayed: true`. Telefone ambíguo ou desconhecido → `404`. O rascunho só vira pedido depois de aprovado por alguém da equipe.
+- Eventos de pedido publicados no outbox: `OrderCreated`, `OrderConfirmed`, `OrderCancelled`, `OrderStatusChanged` (payload com `order_id`, `number`, `customer_id`, `from`, `to`, `scheduled_date`).
+- Próximas fases: callback de status de mensagem.
 
 ## Asaas (Fase 10) — pré-requisitos
 

@@ -7,8 +7,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | 1 | Fundação: projeto, schema base, organização, auth com MFA, RBAC, RLS, auditoria, layout, jobs e outbox | ✅ Concluída — [relatório](docs/reports/FASE-01.md) |
 | 2 | Clientes: cadastro (auto cadastro com aprovação, admin, CSV), geocoding, visão 360° | ✅ Concluída — [relatório](docs/reports/FASE-02.md) |
 | 3 | Produtos, ledger de estoque (`towel_movements`) e saldo por cliente | ✅ Concluída — [relatório](docs/reports/FASE-03.md) |
-| 4 | Pedidos, máquina de estados, reserva com lock e recorrência | ⏳ Próxima |
-| 5 | Motoristas, veículos, rotas e app do motorista (PWA) | Pendente |
+| 4 | Pedidos, máquina de estados, reserva com lock e recorrência | ✅ Concluída — [relatório](docs/reports/FASE-04.md) |
+| 5 | Motoristas, veículos, rotas e app do motorista (PWA) | ⏳ Próxima |
 | 6 | Entrega, coleta, prova, ocorrências, dano e perda | Pendente |
 | 7 | Lavanderia (`laundry_batches`) | Pendente |
 | 8 | Contratos e regras de cobrança | Pendente |
@@ -62,6 +62,18 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] Prévia de impacto antes de confirmar (saldos antes/depois e valor de reposição) e estorno por movimento inverso
 - [x] Telas: Estoque, Produtos, Movimentações, aba Toalhas do cliente, "Minhas toalhas" no portal
 
+## Fase 4 — checklist
+
+- [x] `orders` (número sequencial por org sem buraco sob concorrência, tipo, data/janela, endereço copiado do cadastro, responsável, origem, override), `order_items`, `order_status_history` append-only
+- [x] Máquina de estados da SPEC §6 como única fonte de transições; transições de rota/entrega reservadas às Fases 5 e 6
+- [x] Reserva de estoque com lock ao confirmar (e ao atribuir rota), liberação ao cancelar, reagendar ou desatribuir — na mesma transação
+- [x] Sem estoque: bloqueia; override só com `order.override_stock` + step-up + motivo, auditado e com alerta `STOCK_OVERRIDE`
+- [x] Criação idempotente (Idempotency-Key) pela equipe, pelo portal e pelo n8n (DRAFT, cliente por ID ou telefone)
+- [x] Recorrência por dias da semana, gerada diariamente para 7 dias, sem duplicar (única por regra+data, advisory lock)
+- [x] Outbox: `OrderCreated`, `OrderConfirmed`, `OrderCancelled`, `OrderStatusChanged`
+- [x] Telas: Pedidos (filtros e contadores), Novo pedido, Detalhe (ações, reserva por item, histórico, override), Recorrências, aba Pedidos do cliente
+- [x] Portal: Novo pedido, Meus pedidos, detalhe com acompanhamento e cancelamento enquanto NEW; cartões "Pedido atual" e "Próxima entrega"
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -84,3 +96,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D17 | Saldos em cache (`stock_balances`) mantidos só por trigger `SECURITY DEFINER` | Leitura rápida e lock de linha para reservas concorrentes; o app não escreve; consistência verificada contra o ledger |
 | D18 | Savepoints pelo driver (`tx.savepoint`) em vez de SQL manual | Bug encontrado nos testes: erro tratado dentro de savepoint manual abortava o commit |
 | D15 | Clientes cadastrados pela equipe ou importação entram ativos; auto cadastro segue a configuração | Aprovação só faz sentido para quem se cadastra sozinho |
+| D19 | Pedido reserva o estoque ao entrar em CONFIRMED (não ao ser criado) | SPEC §6: reserva ao confirmar; pedidos NEW/DRAFT ainda podem mudar e não prendem estoque |
+| D20 | Transições ROUTE_ASSIGNED/IN_TRANSIT/DELIVERED/COMPLETED não são manuais | Pertencem aos fluxos de rota e entrega (Fases 5/6), que registram prova e movimentos |
+| D21 | Cliente do portal só cancela pedido NEW | Depois de confirmado há reserva e planejamento; cancelamento passa pela equipe |
+| D22 | Número do pedido via contador por org com `UPDATE ... RETURNING` | Sequencial, sem repetição e sem depender de `max()+1` sob concorrência |
+| D23 | Portal não vê motivos internos, override nem nomes da equipe | Privacidade e separação entre dados operacionais internos e do cliente |
