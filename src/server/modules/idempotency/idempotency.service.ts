@@ -72,6 +72,10 @@ export async function executeIdempotent<TRequest, T extends JsonValue>(
 
   try {
     return await withActorTransaction(db, async (tx) => {
+      // Serializa requisições com a MESMA chave: a segunda espera a primeira
+      // confirmar e então encontra a resposta armazenada (em vez de colidir
+      // num índice único do próprio comando, ex.: CPF/CNPJ).
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`idem:${orgId}:${command.scope}:${command.key}`}, 0))`;
       const existing = await findKey(tx, orgId, command.scope, command.key);
       if (existing) return replay<T>(existing, requestHash);
 

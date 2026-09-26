@@ -12,7 +12,7 @@ Cada ambiente tem suas próprias credenciais. Nunca reutilize chaves entre ambie
 
 ## Variáveis (Vercel → Project → Settings → Environment Variables)
 
-Veja `.env.example`. Obrigatórias na Fase 1: `APP_ENV`, `APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `CRON_SECRET`, `APP_HASH_PEPPER`.
+Veja `.env.example`. Opcionais da Fase 2: `GOOGLE_MAPS_SERVER_KEY` (geocoding), `PUBLIC_SIGNUP_ORG_SLUG` (auto cadastro) e `SUPABASE_SERVICE_ROLE_KEY` (convites). Obrigatórias desde a Fase 1: `APP_ENV`, `APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `CRON_SECRET`, `APP_HASH_PEPPER`.
 
 - `NEXT_PUBLIC_*` são embutidas no build; mude e faça novo deploy.
 - `DATABASE_URL`: use a string do **Supavisor em modo transação** (porta 6543). O cliente já usa `prepare: false`.

@@ -59,11 +59,19 @@ Prioridade em conflitos (SPEC §1): integridade financeira > segurança > integr
 
 `audit_logs` registra ator, ação, entidade, before/after (mascarados), IP, user agent, `request_id` e `correlation_id`. Na Fase 1: login (sucesso/falha com fingerprint do e-mail), recuperação/troca de senha, MFA (cadastro, verificação, falha), bootstrap de admin. As fases seguintes auditam clientes, contratos, estoque, cobranças, cancelamentos, pagamentos manuais, estornos, permissões e usuários.
 
+## Uploads (importação CSV)
+
+- Somente `.csv`, MIME permitido (`text/csv`, `application/vnd.ms-excel`, `text/plain`), até 2 MB, até 5.000 linhas, 60 colunas e 2.000 caracteres por célula; arquivo com byte nulo é recusado como binário.
+- O arquivo não é gravado em storage: só as linhas (jsonb) e o SHA-256 do conteúdo. Nome do arquivo é saneado.
+- Relatório CSV gerado pelo sistema neutraliza fórmulas (`= + - @`) contra CSV injection.
+
 ## LGPD
 
 - Coleta mínima (perfil: nome e telefone). IP e e-mail em rate limit apenas como hash com pepper.
-- `profiles.anonymized_at` e permissão `customer.anonymize` preparam o processo de anonimização (Fase 2), respeitando a retenção legal de registros financeiros.
-- Consentimento de comunicação por cliente (Fase 2/11).
+- **Exportação** dos dados do titular (`customer.export`, step-up) em JSON, auditada.
+- **Anonimização** irreversível (`customer.anonymize`, step-up, confirmação digitada): apaga nome, documento, contatos, endereço, coordenadas e observações; mantém o id para pedidos/financeiro com retenção legal. A auditoria registra só os nomes dos campos apagados.
+- **Consentimento** de WhatsApp/e-mail por cliente com data e origem (equipe, auto cadastro, portal). Importação nunca presume consentimento.
+- Auto cadastro exige aceite explícito dos termos e responde sempre a mesma mensagem (não revela se e-mail/CPF/CNPJ já existem).
 
 ## Checklist de revisão (a cada PR)
 

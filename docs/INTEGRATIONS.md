@@ -8,7 +8,8 @@ Todos os serviços externos ficam atrás de interfaces em `src/server/providers/
 | PostgreSQL | `src/server/db/*` | 1 | ✅ Ativa | `DATABASE_URL` (Supavisor, modo transação, porta 6543) |
 | n8n (outbox) | `OutboxPublisher` → `N8nOutboxPublisher` | 1/11 | ✅ Adapter pronto | `N8N_OUTBOX_WEBHOOK_URL`, `N8N_OUTBOX_HMAC_SECRET` — **faltam** |
 | Asaas | `PaymentProvider` | 10 | Interface | `ASAAS_API_URL`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` — **faltam** |
-| Google Maps | `MapsProvider` | 2/5 | Interface | `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`, `GOOGLE_MAPS_SERVER_KEY` — **faltam** |
+| Google Maps (Geocoding) | `MapsProvider` → `GoogleMapsProvider` | 2 | ✅ Adapter pronto | `GOOGLE_MAPS_SERVER_KEY` — **falta** (sem ela, localização fica pendente) |
+| OpenStreetMap (tiles do mapa) | `LocationMap` (Leaflet) | 2 | ✅ Ativo | nenhuma (atribuição exibida no mapa) |
 | WhatsApp Business Platform | `MessagingProvider` | 11 | Interface | via n8n — **faltam** |
 | Supabase Storage | `StorageProvider` | 6 | Interface | usa service role no servidor |
 
@@ -50,7 +51,16 @@ O n8n é **orquestrador, não fonte de verdade**: não acessa o banco, não rece
 - Notificações nativas do Asaas ao cliente **desativadas**.
 - Nomes de eventos, campos e autenticação serão conferidos na documentação oficial vigente no momento da implementação.
 
-## Google Maps (Fases 2 e 5)
+## Google Maps
 
-- Duas chaves: navegador (restrita por referrer HTTP e Maps JavaScript API) e servidor (restrita por API: Geocoding e Routes).
-- Geocoding em massa roda em job.
+- **Geocoding (Fase 2):** chave de servidor `GOOGLE_MAPS_SERVER_KEY`, restrita por API (Geocoding API; Routes API na Fase 5). Chamadas com `region=br`, `language=pt-BR`, `components=country:BR`.
+- Cada cadastro/alteração de endereço enfileira o job `customer.geocode` (retry com backoff). `REQUEST_DENIED`/`INVALID_REQUEST` não são repetidos (dead letter → alerta). Resultado `partial_match` ou `APPROXIMATE` vira `PARTIAL`.
+- Geocoding em massa: botão "Localizar pendentes" → job `customers.geocode_pending` enfileira até 200 clientes por vez.
+- Correção manual no mapa (status `MANUAL`) nunca é sobrescrita pelo geocoding automático.
+- O mapa de visualização/correção usa Leaflet + tiles do OpenStreetMap (sem chave). A chave de navegador do Google fica para a Fase 5, se necessária.
+
+## Supabase — auto cadastro (Fase 2)
+
+- Para `/cadastro` funcionar, habilite **Allow new users to sign up** no Supabase (Authentication → Providers → Email) e mantenha **Confirm email** ligado. Usuários criados sem vínculo não acessam nada no app.
+- O template de confirmação deve apontar para `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/portal`.
+- Convites de usuários e de contatos do portal exigem `SUPABASE_SERVICE_ROLE_KEY` no servidor.

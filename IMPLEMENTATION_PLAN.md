@@ -5,8 +5,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | Fase | Escopo | Status |
 |---|---|---|
 | 1 | Fundação: projeto, schema base, organização, auth com MFA, RBAC, RLS, auditoria, layout, jobs e outbox | ✅ Concluída — [relatório](docs/reports/FASE-01.md) |
-| 2 | Clientes: cadastro (auto cadastro com aprovação, admin, CSV), geocoding, visão 360° | ⏳ Próxima |
-| 3 | Produtos, ledger de estoque (`towel_movements`) e saldo por cliente | Pendente |
+| 2 | Clientes: cadastro (auto cadastro com aprovação, admin, CSV), geocoding, visão 360° | ✅ Concluída — [relatório](docs/reports/FASE-02.md) |
+| 3 | Produtos, ledger de estoque (`towel_movements`) e saldo por cliente | ⏳ Próxima |
 | 4 | Pedidos, máquina de estados, reserva com lock e recorrência | Pendente |
 | 5 | Motoristas, veículos, rotas e app do motorista (PWA) | Pendente |
 | 6 | Entrega, coleta, prova, ocorrências, dano e perda | Pendente |
@@ -36,6 +36,20 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] CI (lint, typecheck, unit, integração com Postgres, build, check de segredos no bundle, E2E, gitleaks, npm audit)
 - [x] Documentação: README, ARCHITECTURE, SECURITY, DATABASE, INTEGRATIONS, DEPLOYMENT, RUNBOOK, `.env.example`
 
+## Fase 2 — checklist
+
+- [x] `customers` (PF/PJ, CPF/CNPJ único por org — inclusive CNPJ alfanumérico 2026 —, contatos em +55, endereço, lat/lng, `place_id`, consentimento, status)
+- [x] `customer_users` (vínculo usuário ↔ cliente) e RLS do portal: cliente só vê/altera o próprio cadastro
+- [x] Cadastro pela equipe (idempotente), edição com diff auditado, máquina de estados de status com motivo
+- [x] Auto cadastro público (`/cadastro`) com aprovação configurável e respostas anti-enumeração
+- [x] Importação CSV: upload → prévia → mapeamento → validação → duplicados → estratégia → commit → relatório de rejeitados
+- [x] Geocoding (Google) por job com retry, geocoding em massa, correção manual no mapa (Leaflet/OSM) que nunca é sobrescrita
+- [x] Visão 360° com abas (Resumo, Pedidos, Entregas/Coletas, Toalhas, Contrato, Financeiro, Ocorrências, Comunicação, Auditoria)
+- [x] LGPD: exportação de dados do titular e anonimização irreversível (ambas com step-up)
+- [x] Gestão de usuários: convite, suspensão, perfis (com step-up e proteção contra ficar sem ADMIN)
+- [x] Configurações da organização (auto cadastro e aprovação)
+- [x] Portal: início e "Meus dados" (contato e preferências de comunicação)
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -49,3 +63,9 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D7 | Outbox sem publisher configurado permanece `PENDING` | SPEC §11: "se o n8n cair, os eventos continuam no outbox" |
 | D8 | Chave de idempotência gravada na mesma transação do comando | Duplo clique/retry concorrente nunca duplica efeito; falha não consome a chave |
 | D9 | Cadastro público desligado no Supabase até a Fase 2 | Auto cadastro exige fluxo de aprovação (SPEC §4) |
+| D10 | Mapa de correção manual com Leaflet + OpenStreetMap; geocoding com Google (servidor) | Correção manual funciona sem chave de browser; Google fica só onde a SPEC exige (geocoding/rotas) |
+| D11 | Importação nunca marca consentimento de WhatsApp/e-mail | LGPD: consentimento precisa ser registrado com o titular |
+| D12 | Importação em uma transação (tudo ou nada), idempotente pelo status | Nenhum registro importado pela metade; retry não duplica |
+| D13 | Anonimização mantém o registro (id) e apaga dados pessoais | Preserva integridade de pedidos e registros financeiros com retenção legal |
+| D14 | Idempotência com `pg_advisory_xact_lock` por chave | Requisições simultâneas com a mesma chave serializam antes de tocar índices do comando (ex.: CPF/CNPJ) |
+| D15 | Clientes cadastrados pela equipe ou importação entram ativos; auto cadastro segue a configuração | Aprovação só faz sentido para quem se cadastra sozinho |

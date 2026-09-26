@@ -62,3 +62,11 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
   }
   return payload?.data as T;
 }
+
+/** Mensagem para exibir ao usuário, incluindo os campos inválidos quando houver. */
+export function describeApiError(err: unknown, fallback = 'Não foi possível concluir a operação.'): string | null {
+  if (!err) return null;
+  if (!(err instanceof ApiError)) return fallback;
+  if (err.issues.length === 0) return err.message;
+  return `${err.message} ${err.issues.slice(0, 5).map((i) => `${i.path}: ${i.message}`).join('; ')}`;
+}

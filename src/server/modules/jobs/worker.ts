@@ -7,10 +7,20 @@ import { publishPendingOutboxEvents } from '@/server/modules/outbox/outbox.servi
 import type { OutboxPublisher } from '@/server/modules/outbox/outbox.types';
 import { enqueueJob, runPendingJobs, type JobHandler } from './jobs.service';
 import { MAINTENANCE_CLEANUP_JOB, maintenanceCleanupHandler } from './maintenance';
+import {
+  GEOCODE_CUSTOMER_JOB,
+  GEOCODE_PENDING_JOB,
+  geocodeCustomerHandler,
+  geocodePendingHandler,
+} from '@/server/modules/customers/geocoding.service';
 
 /** Registro central de handlers. Cada fase adiciona os seus aqui. */
 export function buildJobHandlers(): ReadonlyMap<string, JobHandler> {
-  return new Map<string, JobHandler>([[MAINTENANCE_CLEANUP_JOB, maintenanceCleanupHandler]]);
+  return new Map<string, JobHandler>([
+    [MAINTENANCE_CLEANUP_JOB, maintenanceCleanupHandler],
+    [GEOCODE_CUSTOMER_JOB, geocodeCustomerHandler],
+    [GEOCODE_PENDING_JOB, geocodePendingHandler],
+  ]);
 }
 
 export function buildOutboxPublisher(): OutboxPublisher | null {

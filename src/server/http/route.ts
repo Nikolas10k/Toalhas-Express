@@ -11,6 +11,7 @@ import { getServerEnv } from '@/server/core/env';
 import {
   AuthenticationError,
   AuthorizationError,
+  NotFoundError,
   RateLimitError,
   ValidationError,
   isAppError,
@@ -228,4 +229,13 @@ export function route<A extends AuthMode, B = undefined, Q = undefined>(config: 
       }
     });
   };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** ID de rota inválido é tratado como inexistente (404), sem vazar detalhes. */
+export function uuidParam(params: Record<string, string | string[] | undefined>, name = 'id'): string {
+  const v = params[name];
+  if (typeof v !== 'string' || !UUID_RE.test(v)) throw new NotFoundError();
+  return v.toLowerCase();
 }

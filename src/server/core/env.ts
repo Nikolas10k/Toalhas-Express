@@ -29,6 +29,10 @@ const serverEnvSchema = z.object({
   STEP_UP_MAX_AGE_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
   N8N_OUTBOX_WEBHOOK_URL: z.url().optional().or(z.literal('').transform(() => undefined)),
   N8N_OUTBOX_HMAC_SECRET: optionalSecret,
+  /** Chave de servidor do Google (Geocoding/Routes). Sem ela, geocoding fica PENDENTE. */
+  GOOGLE_MAPS_SERVER_KEY: optionalSecret,
+  /** Organização que recebe auto cadastros públicos (/cadastro). */
+  PUBLIC_SIGNUP_ORG_SLUG: z.string().trim().regex(/^[a-z0-9-]+$/).optional().or(z.literal('').transform(() => undefined)),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

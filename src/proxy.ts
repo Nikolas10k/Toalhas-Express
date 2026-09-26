@@ -11,7 +11,8 @@ function buildCsp(nonce: string): string {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
     // Atributos style= gerados por bibliotecas de UI; scripts continuam estritos.
     `style-src 'self' 'unsafe-inline'`,
-    `img-src 'self' blob: data:`,
+    // Tiles do OpenStreetMap (mapa de clientes).
+    `img-src 'self' blob: data: https://tile.openstreetmap.org`,
     `font-src 'self'`,
     `connect-src 'self' ${supabase}`.trim(),
     `object-src 'none'`,

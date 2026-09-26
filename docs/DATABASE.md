@@ -52,6 +52,17 @@ Helpers de política (`SECURITY DEFINER`, `search_path=''`): `app.is_active_memb
 | `idempotency_keys` | Resposta armazenada por `(org, scope, key)`; expira em 7 dias (limpeza diária). |
 | `rate_limit_buckets` | Janela fixa; chave = hash com pepper (sem IP/e-mail em claro). |
 
+## Tabelas da Fase 2
+
+| Tabela | Notas |
+|---|---|
+| `customers` | PF/PJ, `document` único por org (CPF 11 dígitos ou CNPJ 14 caracteres, alfanumérico desde 2026). Telefones em E.164. `geocode_status`: PENDING, OK, PARTIAL, NOT_FOUND, FAILED, MANUAL, SKIPPED. Status: pending → active/inactive; active ↔ suspended; → inactive → active. Sem DELETE (trigger); anonimização zera dados pessoais e mantém o id. |
+| `customer_users` | Vínculo usuário (perfil CUSTOMER) ↔ cliente. Base do RLS do portal (`app.current_customer_ids()`). |
+| `customer_imports` | Uma importação CSV: arquivo (hash), cabeçalhos, mapeamento, estratégia, resumo e status (UPLOADED → VALIDATED → COMMITTED / CANCELLED). |
+| `customer_import_rows` | Linha crua, normalizada, erros, duplicado (no banco/no arquivo), ação decidida e resultado. |
+
+`organizations.settings.customers` guarda `selfSignupEnabled` e `requireApproval` (padrões seguros: desligado / exige aprovação).
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.
@@ -59,7 +70,8 @@ Helpers de política (`SECURITY DEFINER`, `search_path=''`): `app.is_active_memb
 - Escrita sensível depende de permissão (`permissions.manage`, `users.manage`, `integrations.manage`).
 - `audit_logs` INSERT exige que `actor_type/actor_id` sejam os do próprio ator (não dá para auditar em nome de outro).
 - `jobs`/`outbox_events`: app_user só insere na própria org e só enxerga a coluna `idempotency_key` (necessária para `ON CONFLICT`).
-- Portal do cliente e app do motorista ganham políticas específicas (vínculo `auth.uid()` ↔ cliente/motorista) nas Fases 2 e 5.
+- `customers`: equipe com `customer.read`/`customer.update`; usuário do portal (`portal.access`) só enxerga e altera os clientes vinculados a ele em `customer_users`. O service restringe as colunas que o cliente pode alterar (contato e preferências).
+- App do motorista ganha políticas específicas (vínculo com rotas atribuídas) na Fase 5.
 
 ## Testes de banco
 

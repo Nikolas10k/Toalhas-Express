@@ -95,3 +95,40 @@ test('health check responde sem detalhes internos', async ({ request }) => {
   expect(body.data.status).toMatch(/ok|degraded/);
   expect(Object.keys(body.data).sort()).toEqual(['database', 'status']);
 });
+
+test.describe('Fase 2 — clientes', () => {
+  test('APIs de clientes exigem autenticação', async ({ request, baseURL }) => {
+    for (const path of ['/api/admin/customers', '/api/admin/customer-imports', '/api/portal/customer', '/api/admin/organization/settings']) {
+      expect((await request.get(path)).status(), path).toBe(401);
+    }
+    const post = await request.post('/api/admin/customers', {
+      headers: { origin: baseURL!, 'content-type': 'application/json' },
+      data: { personType: 'PJ', legalName: 'X', document: '11222333000181' },
+    });
+    expect(post.status()).toBe(401);
+  });
+
+  test('ID inválido na rota vira 401/404, nunca 500', async ({ request }) => {
+    const res = await request.get('/api/admin/customers/nao-e-uuid');
+    expect([401, 404]).toContain(res.status());
+  });
+
+  test('páginas de clientes redirecionam para o login', async ({ page }) => {
+    await page.goto('/admin/clientes/importar');
+    await expect(page).toHaveURL(/\/login\?next=/);
+  });
+
+  test('cadastro público mostra indisponível quando desligado', async ({ page }) => {
+    await page.goto('/cadastro');
+    await expect(page.getByRole('heading', { name: 'Seja cliente' })).toBeVisible();
+    await expect(page.getByText('não está disponível')).toBeVisible();
+  });
+
+  test('auto cadastro valida campos antes de enviar', async ({ request, baseURL }) => {
+    const res = await request.post('/api/public/signup', {
+      headers: { origin: baseURL!, 'content-type': 'application/json' },
+      data: { personType: 'PJ', legalName: 'A', document: '123', email: 'x', password: '1', acceptTerms: false },
+    });
+    expect(res.status()).toBe(422);
+  });
+});
