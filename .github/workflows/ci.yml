@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/toalhas_test
+      # Valores-sentinela: o check de bundle falha se algum aparecer no JS do navegador.
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder_key
+      SUPABASE_SERVICE_ROLE_KEY: ci_sentinel_service_role_DO_NOT_LEAK_0001
+      CRON_SECRET: ci_sentinel_cron_secret_DO_NOT_LEAK_00000000000
+      APP_HASH_PEPPER: ci_sentinel_pepper_DO_NOT_LEAK_000000000000000
+      DATABASE_URL: postgres://ci_sentinel_db_DO_NOT_LEAK@localhost/x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run test:integration
+      - run: npm run build
+      - run: npm run check:bundle-secrets
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

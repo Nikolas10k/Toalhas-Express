@@ -1,0 +1,56 @@
+# Configuração do Supabase CLI para desenvolvimento local (`supabase start`).
+# Projetos hospedados (staging/produção) são configurados no painel — ver docs/DEPLOYMENT.md.
+project_id = "toalhas-express"
+
+[api]
+enabled = true
+port = 54321
+# O app não usa o Data API para dados de negócio; mantenha apenas o schema padrão.
+schemas = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/confirm"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+# Cadastro público desligado até a Fase 2 (auto cadastro com aprovação).
+enable_signup = false
+minimum_password_length = 12
+password_requirements = "lower_upper_letters_digits"
+
+[auth.rate_limit]
+email_sent = 4
+sign_in_sign_ups = 30
+token_verifications = 30
+
+[auth.email]
+enable_signup = false
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = true
+
+[auth.mfa]
+max_enrolled_factors = 3
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true

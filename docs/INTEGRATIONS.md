@@ -1,0 +1,56 @@
+# Integrações
+
+Todos os serviços externos ficam atrás de interfaces em `src/server/providers/`. Falha externa nunca derruba nem desfaz operação interna: o estado pendente é registrado e o worker tenta de novo.
+
+| Integração | Interface | Fase | Status | Credenciais |
+|---|---|---|---|---|
+| Supabase Auth | `src/server/supabase/*` | 1 | ✅ Ativa | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` |
+| PostgreSQL | `src/server/db/*` | 1 | ✅ Ativa | `DATABASE_URL` (Supavisor, modo transação, porta 6543) |
+| n8n (outbox) | `OutboxPublisher` → `N8nOutboxPublisher` | 1/11 | ✅ Adapter pronto | `N8N_OUTBOX_WEBHOOK_URL`, `N8N_OUTBOX_HMAC_SECRET` — **faltam** |
+| Asaas | `PaymentProvider` | 10 | Interface | `ASAAS_API_URL`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` — **faltam** |
+| Google Maps | `MapsProvider` | 2/5 | Interface | `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`, `GOOGLE_MAPS_SERVER_KEY` — **faltam** |
+| WhatsApp Business Platform | `MessagingProvider` | 11 | Interface | via n8n — **faltam** |
+| Supabase Storage | `StorageProvider` | 6 | Interface | usa service role no servidor |
+
+## Supabase
+
+Configuração necessária no painel (por ambiente):
+
+1. **Authentication → Providers → Email**: habilitado; *Confirm email* ligado; *Allow new users to sign up* **desligado** (até a Fase 2).
+2. **Authentication → Multi-Factor**: TOTP habilitado (enroll + verify).
+3. **Authentication → URL Configuration**: *Site URL* = `APP_URL`; *Redirect URLs* inclui `${APP_URL}/auth/confirm`.
+4. **Authentication → Email Templates** (Reset password e Invite): usar o link com `token_hash`:
+   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/redefinir-senha` (troque `type=invite` no template de convite).
+5. **Authentication → Password**: mínimo 12, letras maiúsculas/minúsculas e dígitos; proteção contra senhas vazadas (se disponível no plano).
+6. **JWT Signing Keys**: preferir chaves assimétricas (verificação local de `getClaims()` sem ida ao Auth).
+7. **API → Data API**: pode permanecer ligado — `anon`/`authenticated` não têm privilégios. Opcionalmente, desligar.
+
+## n8n
+
+O n8n é **orquestrador, não fonte de verdade**: não acessa o banco, não recebe a service role key, não recebe o webhook do Asaas, não cria/cancela cobrança, não registra pagamento, não movimenta estoque.
+
+**Backend → n8n (eventos do outbox)**
+
+- `POST ${N8N_OUTBOX_WEBHOOK_URL}` com JSON `{ event_id, event_type, organization_id, aggregate_type, aggregate_id, occurred_at, correlation_id, payload }`.
+- Headers: `x-toalhas-event-id`, `x-toalhas-signature: t=<epoch>,v1=<hmac_sha256_hex(secret, "<t>.<body>")>`.
+- O workflow deve: validar a assinatura em tempo constante, rejeitar `t` com mais de 5 minutos, deduplicar por `event_id`, responder 2xx só após persistir. Qualquer não-2xx gera retry com backoff.
+
+**n8n → backend**
+
+- Header `Authorization: Bearer txi_...` (token INTEGRATION) e `Idempotency-Key` em toda chamada de escrita.
+- `GET /api/integration/v1/whoami` — valida o token.
+- `POST /api/internal/jobs/run` — dispara um ciclo do worker (exige `jobs.run`).
+- Próximas fases: criação de pedido `DRAFT`, callback de status de mensagem.
+
+## Asaas (Fase 10) — pré-requisitos
+
+- Chave Pix cadastrada na conta Asaas.
+- API keys **separadas** de sandbox (`https://api-sandbox.asaas.com/v3`) e produção.
+- Token de autenticação do webhook (diferente da API key), configurado no painel do Asaas e em `ASAAS_WEBHOOK_TOKEN`.
+- Notificações nativas do Asaas ao cliente **desativadas**.
+- Nomes de eventos, campos e autenticação serão conferidos na documentação oficial vigente no momento da implementação.
+
+## Google Maps (Fases 2 e 5)
+
+- Duas chaves: navegador (restrita por referrer HTTP e Maps JavaScript API) e servidor (restrita por API: Geocoding e Routes).
+- Geocoding em massa roda em job.

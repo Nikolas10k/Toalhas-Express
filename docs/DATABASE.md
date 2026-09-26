@@ -1,0 +1,66 @@
+# Banco de dados
+
+PostgreSQL (Supabase). Todas as mudanças de schema são migrations versionadas em `supabase/migrations/` (ordem lexicográfica por timestamp). Nunca altere o schema pelo painel.
+
+## Convenções
+
+- IDs `uuid` (`gen_random_uuid()`); `organization_id` em toda entidade de negócio.
+- `created_at`/`updated_at` (`timestamptz`, UTC) em toda tabela; trigger `app.set_updated_at()`.
+- Vencimentos em `date`. Exibição em `America/Sao_Paulo`.
+- **Dinheiro sempre em centavos `bigint`.** Nunca `numeric`/`float` para valores monetários.
+- CPF/CNPJ só dígitos; telefone E.164 (`+55...`). Máscara apenas na interface.
+- Índices em `organization_id`, FKs, status, datas e IDs externos.
+- FKs compostas `(organization_id, id)` garantem que relacionamentos nunca cruzem tenants.
+- Ledgers, auditoria e eventos são append-only: trigger `app.prevent_mutation()` bloqueia `UPDATE`/`DELETE`/`TRUNCATE` (inclusive para o dono das tabelas). Correção = novo registro.
+
+## Schemas e roles
+
+| Objeto | Descrição |
+|---|---|
+| `public` | Tabelas do app. RLS habilitado em todas. |
+| `app` | Funções privadas (helpers de RLS, claim de jobs, rate limit, bootstrap). Sem `USAGE` para `public`/`anon`/`authenticated`. |
+| role `app_user` | `NOLOGIN`. Assumido pelo backend via `SET LOCAL ROLE` em transações com contexto de ator. Recebe GRANTs mínimos; RLS decide as linhas. |
+| `anon`, `authenticated` | Roles do Data API do Supabase. **Nenhum privilégio** em tabelas/funções do app (revogado explicitamente + default privileges revogados). |
+| role de login (`postgres`) | Dono das tabelas; usado pelo backend em `withSystemTransaction` e pelas migrations. |
+
+## Contexto do ator (GUCs locais da transação)
+
+| GUC | Função | Uso |
+|---|---|---|
+| `app.actor_type` | `app.current_actor_type()` | `USER`, `INTEGRATION`, `SYSTEM` |
+| `app.user_id` | `app.current_user_id()` | `auth.users.id` do JWT verificado |
+| `app.integration_token_id` | `app.current_integration_token_id()` | token INTEGRATION validado |
+| `app.org_id` | `app.current_org_id()` | organização ativa (validada contra vínculos) |
+
+Helpers de política (`SECURITY DEFINER`, `search_path=''`): `app.is_active_member(org)`, `app.actor_in_current_org()`, `app.current_permissions()`, `app.has_permission(code)`.
+
+## Tabelas da Fase 1
+
+| Tabela | Notas |
+|---|---|
+| `organizations` | Tenant. `status` ativo/suspenso/inativo; org suspensa perde todo acesso via RLS. |
+| `permissions` | Catálogo global de permissões granulares (`requires_step_up`). Espelhado em `src/server/authz/permissions.ts` (teste garante igualdade). |
+| `roles` | Por organização. `is_system`, `mfa_required`. Roles de sistema: ADMIN, MANAGER, DRIVER, CUSTOMER, INTEGRATION (criados por `app.bootstrap_organization`). |
+| `role_permissions` | Permissões de cada role. |
+| `profiles` | 1:1 com `auth.users` (nome, telefone). `anonymized_at` para LGPD. |
+| `organization_members` | Vínculo usuário ↔ org (`invited/active/suspended/removed`, `mfa_required`). |
+| `member_roles` | N:N membro ↔ role. Atribuir role exige `permissions.manage`. |
+| `integration_tokens` | Tokens `txi_<prefixo>_<segredo>`; só o SHA-256 é gravado. Revogação e expiração. |
+| `audit_logs` | Append-only. Ator, ação, entidade, before/after (mascarados), IP, user agent, request/correlation id. |
+| `jobs` | Fila com retry/backoff/dead letter. Não pode ser apagada. |
+| `outbox_events` | Eventos de domínio; conteúdo imutável; `idempotency_key` única. |
+| `idempotency_keys` | Resposta armazenada por `(org, scope, key)`; expira em 7 dias (limpeza diária). |
+| `rate_limit_buckets` | Janela fixa; chave = hash com pepper (sem IP/e-mail em claro). |
+
+## Políticas RLS (resumo)
+
+- Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.
+- Leitura de terceiros depende de permissão (`users.read`, `audit.read`, `integrations.manage`).
+- Escrita sensível depende de permissão (`permissions.manage`, `users.manage`, `integrations.manage`).
+- `audit_logs` INSERT exige que `actor_type/actor_id` sejam os do próprio ator (não dá para auditar em nome de outro).
+- `jobs`/`outbox_events`: app_user só insere na própria org e só enxerga a coluna `idempotency_key` (necessária para `ON CONFLICT`).
+- Portal do cliente e app do motorista ganham políticas específicas (vínculo `auth.uid()` ↔ cliente/motorista) nas Fases 2 e 5.
+
+## Testes de banco
+
+`npm run test:integration` recria um banco `*_test` com `supabase/tests/supabase_shim.sql` (roles `anon`/`authenticated` com o mesmo default perigoso do Supabase, `auth.users`) e aplica todas as migrations. Os testes verificam: RLS em todas as tabelas, ausência de GRANTs para o Data API, isolamento entre organizações, append-only, idempotência e concorrência.
