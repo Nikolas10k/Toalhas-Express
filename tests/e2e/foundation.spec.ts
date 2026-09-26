@@ -172,3 +172,34 @@ test.describe('Fase 4 — pedidos', () => {
     }
   });
 });
+
+test.describe('Fase 5 — rotas e app do motorista', () => {
+  test('APIs de rotas, frota e motorista exigem autenticação', async ({ request }) => {
+    for (const path of ['/api/admin/routes', '/api/admin/drivers', '/api/admin/vehicles', '/api/admin/routes/depot', '/api/driver/routes']) {
+      expect((await request.get(path)).status(), path).toBe(401);
+    }
+  });
+
+  test('ações do motorista sem sessão são recusadas', async ({ request, baseURL }) => {
+    const id = '00000000-0000-4000-8000-000000000000';
+    const res = await request.post(`/api/driver/routes/${id}/start`, { data: { geo: null }, headers: { origin: baseURL! } });
+    expect(res.status()).toBe(401);
+  });
+
+  test('páginas de rotas e do motorista redirecionam para o login', async ({ page }) => {
+    for (const path of ['/admin/rotas', '/admin/rotas/motoristas', '/motorista/rotas/00000000-0000-4000-8000-000000000000']) {
+      await page.goto(path);
+      await expect(page, path).toHaveURL(/\/login\?next=/);
+    }
+  });
+
+  test('PWA: manifest, service worker e página offline sem dados sensíveis', async ({ request }) => {
+    const manifest = await request.get('/manifest.webmanifest');
+    expect(manifest.status()).toBe(200);
+    expect(await manifest.json()).toMatchObject({ start_url: '/motorista', display: 'standalone' });
+    const sw = await request.get('/sw.js');
+    expect(sw.status()).toBe(200);
+    expect(await sw.text()).not.toMatch(/api\//);
+    expect((await request.get('/offline.html')).status()).toBe(200);
+  });
+});

@@ -8,8 +8,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | 2 | Clientes: cadastro (auto cadastro com aprovação, admin, CSV), geocoding, visão 360° | ✅ Concluída — [relatório](docs/reports/FASE-02.md) |
 | 3 | Produtos, ledger de estoque (`towel_movements`) e saldo por cliente | ✅ Concluída — [relatório](docs/reports/FASE-03.md) |
 | 4 | Pedidos, máquina de estados, reserva com lock e recorrência | ✅ Concluída — [relatório](docs/reports/FASE-04.md) |
-| 5 | Motoristas, veículos, rotas e app do motorista (PWA) | ⏳ Próxima |
-| 6 | Entrega, coleta, prova, ocorrências, dano e perda | Pendente |
+| 5 | Motoristas, veículos, rotas e app do motorista (PWA) | ✅ Concluída — [relatório](docs/reports/FASE-05.md) |
+| 6 | Entrega, coleta, prova, ocorrências, dano e perda | ⏳ Próxima |
 | 7 | Lavanderia (`laundry_batches`) | Pendente |
 | 8 | Contratos e regras de cobrança | Pendente |
 | 9 | Financeiro interno (billable events, receivables, charges, payments, ledger) | Pendente |
@@ -74,6 +74,17 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] Telas: Pedidos (filtros e contadores), Novo pedido, Detalhe (ações, reserva por item, histórico, override), Recorrências, aba Pedidos do cliente
 - [x] Portal: Novo pedido, Meus pedidos, detalhe com acompanhamento e cancelamento enquanto NEW; cartões "Pedido atual" e "Próxima entrega"
 
+## Fase 5 — checklist
+
+- [x] `vehicles` (placa antiga/Mercosul, capacidade em toalhas, status) e `drivers` (CPF, telefone, usuário do app, veículo padrão, status)
+- [x] `routes` (PLANNED → IN_PROGRESS → COMPLETED/CANCELLED), `route_stops` (8 status da SPEC), `route_events` append-only com geolocalização
+- [x] Planejamento: pedidos READY da data no mapa, seleção em ordem, motorista/veículo, capacidade, uma rota aberta por motorista/dia, pedido em uma rota só (lock)
+- [x] Atribuição READY → ROUTE_ASSIGNED garante a reserva; tirar da rota ou cancelar a rota mantém a reserva (pedido volta a READY)
+- [x] Ordenação manual (subir/descer) e otimização pela Google Routes API a partir da base de saída, com distância e duração
+- [x] App do motorista (PWA): rota do dia, próxima parada, Iniciar rota (carrega o veículo RESERVED → IN_ROUTE, pedidos IN_TRANSIT), Navegar, Ligar, Cheguei, Próxima, Finalizar
+- [x] Isolamento do motorista no backend e no RLS (só as próprias rotas; clientes só com rota aberta; nada financeiro)
+- [x] Telas: Rotas (com base de saída), Nova rota, Detalhe (mapa, paradas, linha do tempo), Motoristas, Veículos
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -101,3 +112,9 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D21 | Cliente do portal só cancela pedido NEW | Depois de confirmado há reserva e planejamento; cancelamento passa pela equipe |
 | D22 | Número do pedido via contador por org com `UPDATE ... RETURNING` | Sequencial, sem repetição e sem depender de `max()+1` sob concorrência |
 | D23 | Portal não vê motivos internos, override nem nomes da equipe | Privacidade e separação entre dados operacionais internos e do cliente |
+| D24 | Sair da rota (→ READY) mantém a reserva (antes liberava) | O pedido continua pronto e vai para outra rota; liberar criaria corrida pelo estoque entre rotas |
+| D25 | Carregamento (DELIVERY_DISPATCH) acontece ao **iniciar a rota**, no app do motorista | É o momento físico em que as toalhas saem; pedidos passam a IN_TRANSIT na mesma transação |
+| D26 | Rota em andamento não é cancelada pelo admin | As toalhas já saíram: cada parada precisa de desfecho (entrega, coleta ou problema — Fase 6) |
+| D27 | Otimização chama o Google fora da transação e só aplica se as paradas não mudaram | Lock nunca fica preso esperando rede; resposta do provedor é validada (permutação exata) |
+| D28 | Service worker sem cache de dados e sem fila offline | Dados de clientes não ficam no aparelho; nenhuma ação "fantasma" é registrada depois |
+| D29 | Motorista vê dados do cliente só com a rota aberta | Minimização (LGPD): depois de concluída, o histórico da rota fica sem dados pessoais para ele |

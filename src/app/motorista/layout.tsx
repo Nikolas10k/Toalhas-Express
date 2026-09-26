@@ -1,5 +1,6 @@
 import { Logo } from '@/components/logo';
 import { LogoutButton } from '@/components/logout-button';
+import { ServiceWorkerRegister } from '@/components/routes/sw-register';
 import { requirePageActor } from '@/server/auth/guards';
 
 /** App do motorista: mobile first. Apenas rotas próprias, nada financeiro. */
@@ -15,6 +16,7 @@ export default async function DriverLayout({ children }: { children: React.React
         <LogoutButton compact />
       </header>
       <main>{children}</main>
+      <ServiceWorkerRegister />
     </div>
   );
 }

@@ -86,6 +86,18 @@ Helpers de política (`SECURITY DEFINER`, `search_path=''`): `app.is_active_memb
 
 A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION_RELEASE` com `order_id`. Chaves de idempotência dos movimentos: `order:{id}:reserve|release:{tag}:{produto}`.
 
+## Tabelas da Fase 5
+
+| Tabela | Notas |
+|---|---|
+| `vehicles` | Placa normalizada (antiga ou Mercosul) única por org, modelo, capacidade em toalhas, status ACTIVE/INACTIVE/MAINTENANCE. Sem DELETE. |
+| `drivers` | Nome, CPF (único por org), telefone +55, `user_id` (único por org — acesso ao app), veículo padrão, status ACTIVE/INACTIVE/ON_LEAVE. Sem DELETE. |
+| `routes` | Data, motorista, veículo, status PLANNED → IN_PROGRESS → COMPLETED/CANCELLED, ordenação MANUAL/OPTIMIZED com distância e duração estimadas. Índice único parcial: um motorista não tem duas rotas abertas no mesmo dia. Sem DELETE. |
+| `route_stops` | Uma por pedido na rota (`unique(route_id, order_id)`), `sequence` com unique **DEFERRABLE** (reordenação na mesma transação), status das paradas da SPEC §7, lat/lng e horários (a caminho, chegada, conclusão). Só é apagada em rota PLANNED. |
+| `route_events` | Linha do tempo append-only da rota e das paradas, com geolocalização quando disponível (`metadata.geolocation = 'unavailable'` quando o aparelho não informou). |
+
+`orders.route_id`/`driver_id` e `towel_movements.route_id`/`route_stop_id`/`driver_id` ganharam FKs. `organizations.settings.routes.depot` guarda a base de saída; `app.set_route_depot()` permite a quem tem `route.manage` alterar só esse campo.
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.
@@ -95,7 +107,7 @@ A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION
 - `jobs`/`outbox_events`: app_user só insere na própria org e só enxerga a coluna `idempotency_key` (necessária para `ON CONFLICT`).
 - `customers`: equipe com `customer.read`/`customer.update`; usuário do portal (`portal.access`) só enxerga e altera os clientes vinculados a ele em `customer_users`. O service restringe as colunas que o cliente pode alterar (contato e preferências).
 - `orders` e derivados: equipe com `order.read` (escrita com `order.create`/`order.update`/`order.cancel`; `order.create_draft` só cria DRAFT); portal só os pedidos dos clientes vinculados; token de integração só enxerga os rascunhos que ele mesmo criou.
-- App do motorista ganha políticas específicas (vínculo com rotas atribuídas) na Fase 5.
+- Motorista (`driver_app.access`): `app.current_driver_id()`, `app.driver_can_see_order()` e `app.driver_can_see_customer()` (SECURITY DEFINER) limitam rotas, paradas, pedidos, movimentos e clientes às rotas do próprio motorista — clientes só enquanto a rota está aberta.
 
 ## Testes de banco
 

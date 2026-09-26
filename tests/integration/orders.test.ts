@@ -129,7 +129,7 @@ describe('pedidos: criação e reserva', () => {
     expect((await stock()).AVAILABLE).toBe(before.AVAILABLE);
   });
 
-  it('reagendar libera, reconfirmar reserva de novo, desatribuir da rota libera', async () => {
+  it('reagendar libera, reconfirmar reserva de novo, sair da rota mantém a reserva', async () => {
     const before = await stock();
     const { id } = await createOrderByStaff(manager, order(10, { confirmNow: true }));
     expect((await stock()).RESERVED).toBe(before.RESERVED + 10);
@@ -151,6 +151,8 @@ describe('pedidos: criação e reserva', () => {
     await withActorTransaction({ type: 'USER', userId: manager.userId, organizationId: org }, (tx) =>
       applyTransition(tx, manager, id, { to: 'READY', overrideStock: false, windowStart: null, windowEnd: null }),
     );
+    expect((await stock()).RESERVED).toBe(before.RESERVED + 10);
+    await transitionOrder(manager, id, { to: 'CANCELLED', reason: 'teste concluído', overrideStock: false, windowStart: null, windowEnd: null });
     expect((await stock()).RESERVED).toBe(before.RESERVED);
   });
 

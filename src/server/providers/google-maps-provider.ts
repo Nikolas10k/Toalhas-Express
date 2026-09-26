@@ -1,8 +1,18 @@
 import 'server-only';
 import { ProviderError } from '@/server/core/errors';
-import type { GeocodeResult, MapsProvider, OptimizedRoute } from './maps-provider';
+import type { GeocodeResult, MapsProvider, OptimizedRoute, RouteStopInput } from './maps-provider';
 
 const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
+const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
+/** Limite de paradas intermediárias com otimização na Routes API. */
+export const MAX_OPTIMIZED_STOPS = 25;
+
+interface GoogleRoutesResponse {
+  routes?: Array<{ distanceMeters?: number; duration?: string; optimizedIntermediateWaypointIndex?: number[] }>;
+  error?: { status?: string; message?: string };
+}
+
+const waypoint = (p: RouteStopInput) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
 
 interface GoogleGeocodeResponse {
   status: string;
@@ -70,7 +80,59 @@ export class GoogleMapsProvider implements MapsProvider {
     }
   }
 
-  async optimizeRoute(): Promise<OptimizedRoute> {
-    throw new ProviderError(this.name, 'Otimização de rotas será implementada na Fase 5', { retryable: false });
+  /**
+   * Google Routes API (computeRoutes com optimizeWaypointOrder). Origem e
+   * destino fixos; as paradas intermediárias são reordenadas. Sem trânsito em
+   * tempo real (a otimização de ordem não aceita TRAFFIC_AWARE_OPTIMAL).
+   */
+  async optimizeRoute(origin: RouteStopInput, stops: RouteStopInput[], destination: RouteStopInput = origin): Promise<OptimizedRoute> {
+    if (stops.length === 0) return { orderedStopIds: [], distanceMeters: 0, durationSeconds: 0 };
+    if (stops.length > MAX_OPTIMIZED_STOPS) {
+      throw new ProviderError(this.name, `Otimização aceita até ${MAX_OPTIMIZED_STOPS} paradas`, { retryable: false });
+    }
+    let res: Response;
+    try {
+      res = await this.fetchImpl(ROUTES_URL, {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.timeoutMs * 2),
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': this.apiKey,
+          'x-goog-fieldmask': 'routes.distanceMeters,routes.duration,routes.optimizedIntermediateWaypointIndex',
+        },
+        body: JSON.stringify({
+          origin: waypoint(origin),
+          destination: waypoint(destination),
+          intermediates: stops.map(waypoint),
+          travelMode: 'DRIVE',
+          routingPreference: 'TRAFFIC_UNAWARE',
+          optimizeWaypointOrder: stops.length > 1,
+          languageCode: 'pt-BR',
+          regionCode: 'BR',
+          units: 'METRIC',
+        }),
+      });
+    } catch (err) {
+      throw new ProviderError(this.name, 'Falha de rede na otimização de rota', { cause: err });
+    }
+    const body = (await res.json().catch(() => ({}))) as GoogleRoutesResponse;
+    if (!res.ok) {
+      throw new ProviderError(this.name, `Routes API: HTTP ${res.status} ${body.error?.status ?? ''}`.trim(), {
+        retryable: res.status >= 500 || res.status === 429,
+      });
+    }
+    const route = body.routes?.[0];
+    if (!route) throw new ProviderError(this.name, 'Routes API não encontrou caminho entre as paradas', { retryable: false });
+    const order = stops.length > 1 ? route.optimizedIntermediateWaypointIndex ?? [] : [0];
+    // A resposta tem de ser uma permutação completa; caso contrário, não confiamos nela.
+    if (order.length !== stops.length || new Set(order).size !== stops.length || order.some((i) => i < 0 || i >= stops.length)) {
+      throw new ProviderError(this.name, 'Routes API devolveu ordem inválida', { retryable: false });
+    }
+    return {
+      orderedStopIds: order.map((i) => stops[i]!.id),
+      distanceMeters: Math.max(0, Math.round(route.distanceMeters ?? 0)),
+      durationSeconds: Math.max(0, Math.round(Number.parseFloat(route.duration ?? '0') || 0)),
+    };
   }
 }

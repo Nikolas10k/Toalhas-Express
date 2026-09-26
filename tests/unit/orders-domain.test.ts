@@ -78,15 +78,17 @@ describe('efeito de reserva', () => {
     expect(reservationEffect('RESCHEDULED', 'CONFIRMED')).toBe('reserve');
     expect(reservationEffect('READY', 'ROUTE_ASSIGNED')).toBe('reserve');
   });
-  it('libera ao cancelar, reagendar ou desatribuir', () => {
+  it('libera ao cancelar ou reagendar', () => {
     expect(reservationEffect('CONFIRMED', 'CANCELLED')).toBe('release');
     expect(reservationEffect('READY', 'RESCHEDULED')).toBe('release');
-    expect(reservationEffect('ROUTE_ASSIGNED', 'READY')).toBe('release');
+    expect(reservationEffect('ROUTE_ASSIGNED', 'RESCHEDULED')).toBe('release');
   });
   it('não mexe no estoque nas etapas intermediárias', () => {
     expect(reservationEffect('CONFIRMED', 'PREPARING')).toBe('none');
     expect(reservationEffect('PREPARING', 'READY')).toBe('none');
     expect(reservationEffect('DRAFT', 'NEW')).toBe('none');
+    // Tirar da rota mantém a reserva: o pedido continua pronto.
+    expect(reservationEffect('ROUTE_ASSIGNED', 'READY')).toBe('none');
   });
 });
 

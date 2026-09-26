@@ -46,11 +46,14 @@ export function isManualTransition(from: OrderStatus, to: OrderStatus): boolean 
 /** Estados em que o estoque de entrega fica reservado para o pedido. */
 export const RESERVED_STATUSES: ReadonlySet<OrderStatus> = new Set(['CONFIRMED', 'PREPARING', 'READY', 'ROUTE_ASSIGNED']);
 
-/** Entrar em CONFIRMED/ROUTE_ASSIGNED reserva; cancelar, reagendar ou desatribuir (→ READY) libera. */
-export function reservationEffect(from: OrderStatus, to: OrderStatus): 'reserve' | 'release' | 'none' {
+/**
+ * Entrar em CONFIRMED/ROUTE_ASSIGNED reserva (completa o que faltar);
+ * cancelar ou reagendar libera. Sair da rota (→ READY) mantém a reserva:
+ * o pedido continua pronto e vai para outra rota.
+ */
+export function reservationEffect(_from: OrderStatus, to: OrderStatus): 'reserve' | 'release' | 'none' {
   if (to === 'CONFIRMED' || to === 'ROUTE_ASSIGNED') return 'reserve';
   if (to === 'CANCELLED' || to === 'RESCHEDULED') return 'release';
-  if (from === 'ROUTE_ASSIGNED' && to === 'READY') return 'release';
   return 'none';
 }
 

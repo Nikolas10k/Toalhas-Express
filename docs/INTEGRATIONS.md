@@ -8,7 +8,7 @@ Todos os serviços externos ficam atrás de interfaces em `src/server/providers/
 | PostgreSQL | `src/server/db/*` | 1 | ✅ Ativa | `DATABASE_URL` (Supavisor, modo transação, porta 6543) |
 | n8n (outbox) | `OutboxPublisher` → `N8nOutboxPublisher` | 1/11 | ✅ Adapter pronto | `N8N_OUTBOX_WEBHOOK_URL`, `N8N_OUTBOX_HMAC_SECRET` — **faltam** |
 | Asaas | `PaymentProvider` | 10 | Interface | `ASAAS_API_URL`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` — **faltam** |
-| Google Maps (Geocoding) | `MapsProvider` → `GoogleMapsProvider` | 2 | ✅ Adapter pronto | `GOOGLE_MAPS_SERVER_KEY` — **falta** (sem ela, localização fica pendente) |
+| Google Maps (Geocoding + Routes) | `MapsProvider` → `GoogleMapsProvider` | 2/5 | ✅ Adapter pronto | `GOOGLE_MAPS_SERVER_KEY` — **falta** (sem ela, localização fica pendente e a otimização de rota fica indisponível) |
 | OpenStreetMap (tiles do mapa) | `LocationMap` (Leaflet) | 2 | ✅ Ativo | nenhuma (atribuição exibida no mapa) |
 | WhatsApp Business Platform | `MessagingProvider` | 11 | Interface | via n8n — **faltam** |
 | Supabase Storage | `StorageProvider` | 6 | Interface | usa service role no servidor |
@@ -59,7 +59,11 @@ O n8n é **orquestrador, não fonte de verdade**: não acessa o banco, não rece
 - Cada cadastro/alteração de endereço enfileira o job `customer.geocode` (retry com backoff). `REQUEST_DENIED`/`INVALID_REQUEST` não são repetidos (dead letter → alerta). Resultado `partial_match` ou `APPROXIMATE` vira `PARTIAL`.
 - Geocoding em massa: botão "Localizar pendentes" → job `customers.geocode_pending` enfileira até 200 clientes por vez.
 - Correção manual no mapa (status `MANUAL`) nunca é sobrescrita pelo geocoding automático.
-- O mapa de visualização/correção usa Leaflet + tiles do OpenStreetMap (sem chave). A chave de navegador do Google fica para a Fase 5, se necessária.
+- O mapa de visualização/correção usa Leaflet + tiles do OpenStreetMap (sem chave). Não há chave de navegador do Google: nada do Google roda no browser.
+- **Otimização de rota (Fase 5):** Routes API `POST https://routes.googleapis.com/directions/v2:computeRoutes` com `optimizeWaypointOrder: true`, `travelMode: DRIVE`, `routingPreference: TRAFFIC_UNAWARE` (a otimização de ordem não aceita o modo com trânsito), chave no header `X-Goog-Api-Key` e `X-Goog-FieldMask: routes.distanceMeters,routes.duration,routes.optimizedIntermediateWaypointIndex`. Origem e destino = base de saída (Rotas → Base). Até 25 paradas por otimização. Habilite a **Routes API** no projeto do Google Cloud e inclua-a na restrição da chave.
+- A chamada acontece fora da transação; a nova ordem só é aplicada se a rota ainda estiver planejada e com as mesmas paradas. Resposta que não seja uma permutação exata das paradas é descartada. Falha do Google não altera nada (a ordem manual continua disponível).
+- **Navegação do motorista:** link `https://www.google.com/maps/dir/?api=1&destination=lat,lng` (abre o app de mapas do celular; não usa chave).
+- Eventos de rota no outbox: `RoutePlanned`, `RouteStarted`, `StopArrived`, `RouteCompleted`, `RouteCancelled`.
 
 ## Supabase — auto cadastro (Fase 2)
 

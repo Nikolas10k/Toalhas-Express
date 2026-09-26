@@ -15,6 +15,15 @@ export const organizationSettingsSchema = z.object({
       requireApproval: z.boolean().default(true),
     })
     .prefault({}),
+  routes: z
+    .object({
+      /** Base de saída/retorno das rotas (origem da otimização). */
+      depot: z
+        .object({ name: z.string().max(100), latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) })
+        .nullable()
+        .default(null),
+    })
+    .prefault({}),
 });
 export type OrganizationSettings = z.infer<typeof organizationSettingsSchema>;
 

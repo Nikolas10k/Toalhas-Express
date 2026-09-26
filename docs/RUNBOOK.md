@@ -78,6 +78,13 @@ Mesmo procedimento para `outbox_events` (`status = 'PENDING', attempts = 0, next
 - **Reserva de um pedido**: `select product_id, sum(case when to_state = 'RESERVED' then quantity else -quantity end) from public.towel_movements where order_id = '<id>' and 'RESERVED' in (from_state, to_state) group by 1;`
 - **Rascunhos do n8n** aparecem com status "Rascunho" em Pedidos; aprovar vira NEW, depois confirmar reserva o estoque.
 
+## Rotas e motoristas
+
+- **Motorista não vê a rota no app**: confira em Rotas → Motoristas se o cadastro está ATIVO e com o usuário vinculado (o usuário precisa do perfil Motorista em Administração → Usuários).
+- **Otimização indisponível**: falta `GOOGLE_MAPS_SERVER_KEY` com a Routes API habilitada, a base de saída não foi cadastrada ou há parada sem localização (corrija no cadastro do cliente). A ordem manual sempre funciona.
+- **Rota iniciada por engano**: não há "desfazer" — as toalhas saíram do estoque (RESERVED → IN_ROUTE). Até a Fase 6 (registro de entrega/coleta/problema), corrija com transferência manual em Estoque (Em rota → Disponível, com motivo) e fale com o suporte para encerrar a rota.
+- **Carga do veículo**: `select product_id, sum(quantity) from public.towel_movements where route_id = '<id>' and movement_type = 'DELIVERY_DISPATCH' group by 1;`
+
 ## Acesso e segurança
 
 - **Revogar token de integração**: `update public.integration_tokens set revoked_at = now() where id = '<id>';` (efeito imediato — RLS e resolução do ator checam `revoked_at`).

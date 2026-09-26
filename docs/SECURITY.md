@@ -22,6 +22,8 @@ Prioridade em conflitos (SPEC §1): integridade financeira > segurança > integr
 - Três barreiras: guarda de página (UX) → `authorize()` no service → RLS no banco.
 - Organização ativa vem de cookie, mas só é aceita se houver vínculo ativo; senão cai na primeira org do usuário.
 - IDOR/BOLA: consultas por ID rodam com RLS da org ativa; registro de outro tenant simplesmente não existe (`404`).
+- **Motorista** (Fase 5): o cadastro em `drivers.user_id` liga o usuário ao motorista (`app.current_driver_id()`; motorista INATIVO perde o acesso). RLS: rotas e paradas só as próprias; pedidos, itens, histórico e movimentos só dos pedidos das próprias rotas; dados do cliente (nome, telefone, endereço) só enquanto a rota está aberta. O service responde `404` para rota de outro motorista e nunca devolve valores, contratos, dívidas nem notas internas.
+- **PWA do motorista**: o service worker não guarda nada autenticado em cache (sempre rede) e não enfileira ações offline; sem conexão mostra só uma página estática.
 
 ## Banco
 
