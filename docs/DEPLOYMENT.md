@@ -29,7 +29,7 @@ Veja `.env.example`. Obrigatórias na Fase 1: `APP_ENV`, `APP_URL`, `NEXT_PUBLIC
 
 ## Worker (jobs + outbox)
 
-`vercel.json` agenda `GET /api/internal/jobs/run` a cada 5 minutos com `Authorization: Bearer $CRON_SECRET` (a Vercel envia automaticamente quando `CRON_SECRET` está definido). No plano Hobby a Vercel só permite cron diário: nesse caso, use o n8n para chamar `POST /api/internal/jobs/run` com token INTEGRATION a cada minuto.
+`vercel.json` agenda `GET /api/internal/jobs/run` uma vez por dia (06:00 UTC, limite do plano Hobby; no Pro, use `*/5 * * * *`) com `Authorization: Bearer $CRON_SECRET` (a Vercel envia automaticamente quando `CRON_SECRET` está definido). No plano Hobby a Vercel só permite cron diário: nesse caso, use o n8n para chamar `POST /api/internal/jobs/run` com token INTEGRATION a cada minuto.
 
 ## Migrations
 
