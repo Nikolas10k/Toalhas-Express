@@ -89,11 +89,11 @@ export function OrdersTable({ items, showCustomer = true }: { items: OrderListIt
   );
 }
 
-export function OrdersList({ canCreate }: { canCreate: boolean }) {
+export function OrdersList({ canCreate, initialDateFrom = '', initialDateTo = '' }: { canCreate: boolean; initialDateFrom?: string; initialDateTo?: string }) {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(initialDateFrom);
+  const [dateTo, setDateTo] = useState(initialDateTo);
   const q = useInfiniteQuery({
     queryKey: ['orders', status, search, dateFrom, dateTo],
     initialPageParam: 1,

@@ -9,7 +9,7 @@ import { formatScheduleDate, formatWindow, ORDER_TYPE_LABEL } from '@/components
 import { formatDistance, formatDuration, RouteStatusBadge, STOP_STATUS_LABEL, StopStatusBadge } from '@/components/routes/labels';
 import { OrderPicker } from '@/components/routes/order-picker';
 import { RouteMap, type MapPoint } from '@/components/routes/route-map';
-import { shortAddress, type DriverOption, type PlannableOrder, type VehicleOption } from '@/components/routes/types';
+import { shortAddress, type DriverOption, type PlannableResponse, type VehicleOption } from '@/components/routes/types';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -272,7 +272,7 @@ export function RouteDetailView({ id }: { id: string }) {
 
 function AddOrdersDialog({ routeId, date, onClose, onDone }: { routeId: string; date: string; onClose: () => void; onDone: () => void }) {
   const [selected, setSelected] = useState<string[]>([]);
-  const orders = useQuery({ queryKey: ['plannable', date], queryFn: ({ signal }) => apiFetch<PlannableOrder[]>(`/api/admin/routes/plannable?date=${date}`, { signal }) });
+  const orders = useQuery({ queryKey: ['plannable', date], queryFn: ({ signal }) => apiFetch<PlannableResponse>(`/api/admin/routes/plannable?date=${date}`, { signal }) });
   const add = useMutation({
     mutationFn: () => apiFetch(`/api/admin/routes/${routeId}/stops`, { body: { orderIds: selected } }),
     onSuccess: () => {
@@ -285,10 +285,10 @@ function AddOrdersDialog({ routeId, date, onClose, onDone }: { routeId: string; 
     <Dialog open onClose={onClose} title="Adicionar pedidos" description="Entram no fim da rota, na ordem selecionada." className="max-w-2xl">
       {orders.isPending ? (
         <Skeleton className="h-40 w-full" />
-      ) : orders.data?.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhum outro pedido pronto nesta data.</p>
+      ) : orders.data?.orders.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum outro pedido confirmado e sem rota nesta data.</p>
       ) : (
-        <OrderPicker orders={orders.data ?? []} selected={selected} onToggle={(id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))} />
+        <OrderPicker orders={orders.data?.orders ?? []} selected={selected} onToggle={(id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))} />
       )}
       {add.error && <Alert variant="destructive" className="mt-3">{describeApiError(add.error)}</Alert>}
       <div className="mt-4 flex justify-end">

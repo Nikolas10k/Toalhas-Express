@@ -121,8 +121,9 @@ export async function insertRouteEvent(
 ) {
   await tx`
     insert into public.route_events (organization_id, route_id, route_stop_id, event_type, from_status, to_status, reason, metadata,
-                                     latitude, longitude, actor_type, actor_id)
+                                     latitude, longitude, actor_type, actor_id, created_at)
     values (${actor.organizationId}, ${e.routeId}, ${e.stopId ?? null}, ${e.type}, ${e.from ?? null}, ${e.to ?? null}, ${e.reason ?? null},
             ${tx.json({ ...(e.metadata ?? {}), ...(e.geo === undefined ? {} : e.geo ? { accuracy: e.geo.accuracy ?? null } : { geolocation: 'unavailable' }) } as never)},
-            ${e.geo?.latitude ?? null}, ${e.geo?.longitude ?? null}, ${actor.type}, ${actor.type === 'USER' ? actor.userId : actor.tokenId})`;
+            ${e.geo?.latitude ?? null}, ${e.geo?.longitude ?? null}, ${actor.type}, ${actor.type === 'USER' ? actor.userId : actor.tokenId},
+            clock_timestamp())`;
 }

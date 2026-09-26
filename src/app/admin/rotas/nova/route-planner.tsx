@@ -10,7 +10,7 @@ import { PageHeader } from '@/components/admin/page-header';
 import { formatScheduleDate, todayLocal } from '@/components/orders/labels';
 import { OrderPicker } from '@/components/routes/order-picker';
 import { RouteMap, type MapPoint } from '@/components/routes/route-map';
-import type { DriverOption, PlannableOrder, VehicleOption } from '@/components/routes/types';
+import type { DriverOption, PlannableResponse, VehicleOption } from '@/components/routes/types';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,20 +34,20 @@ export function RoutePlanner({ initialDate }: { initialDate: string | null }) {
   const [notes, setNotes] = useState('');
   const orders = useQuery({
     queryKey: ['plannable', date],
-    queryFn: ({ signal }) => apiFetch<PlannableOrder[]>(`/api/admin/routes/plannable?date=${date}`, { signal }),
+    queryFn: ({ signal }) => apiFetch<PlannableResponse>(`/api/admin/routes/plannable?date=${date}`, { signal }),
   });
   const drivers = useQuery({ queryKey: ['drivers'], queryFn: ({ signal }) => apiFetch<DriverOption[]>('/api/admin/drivers', { signal }) });
   const vehicles = useQuery({ queryKey: ['vehicles'], queryFn: ({ signal }) => apiFetch<VehicleOption[]>('/api/admin/vehicles', { signal }) });
   const depot = useQuery({ queryKey: ['depot'], queryFn: ({ signal }) => apiFetch<Depot | null>('/api/admin/routes/depot', { signal }) });
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const byId = useMemo(() => new Map(orders.data?.map((o) => [o.id, o])), [orders.data]);
+  const byId = useMemo(() => new Map(orders.data?.orders.map((o) => [o.id, o])), [orders.data]);
   const vehicle = vehicles.data?.find((v) => v.id === vehicleId);
   const load = selected.reduce((a, id) => a + (byId.get(id)?.totalDelivery ?? 0), 0);
   const over = vehicle ? load > vehicle.capacity : false;
   const points: MapPoint[] = useMemo(
     () =>
-      (orders.data ?? [])
+      (orders.data?.orders ?? [])
         .filter((o) => o.latitude !== null && o.longitude !== null)
         .map((o) => {
           const idx = selected.indexOf(o.id);
@@ -141,18 +141,26 @@ export function RoutePlanner({ initialDate }: { initialDate: string | null }) {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Pedidos prontos em {formatScheduleDate(date)}</CardTitle>
+              <CardTitle className="text-base">Pedidos para {formatScheduleDate(date)}</CardTitle>
             </CardHeader>
             <CardContent>
               {orders.error && <Alert variant="destructive">{describeApiError(orders.error)}</Alert>}
               {orders.isPending ? (
                 <Skeleton className="h-40 w-full" />
-              ) : orders.data?.length === 0 ? (
+              ) : orders.data?.orders.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Nenhum pedido pronto e sem rota nesta data. Pedidos entram aqui quando estão com status &quot;Pronto&quot;.
+                  Nenhum pedido confirmado e sem rota nesta data. Pedidos aparecem aqui depois de confirmados em Pedidos.
                 </p>
               ) : (
-                <OrderPicker orders={orders.data ?? []} selected={selected} onToggle={toggle} />
+                <OrderPicker orders={orders.data?.orders ?? []} selected={selected} onToggle={toggle} />
+              )}
+              {(orders.data?.awaitingConfirmation ?? 0) > 0 && (
+                <Alert className="mt-3">
+                  {orders.data!.awaitingConfirmation} pedido(s) desta data ainda não foram confirmados e por isso não aparecem aqui.{' '}
+                  <Link href={`/admin/pedidos?dateFrom=${date}&dateTo=${date}`} className="underline">
+                    Ver pedidos
+                  </Link>
+                </Alert>
               )}
             </CardContent>
           </Card>

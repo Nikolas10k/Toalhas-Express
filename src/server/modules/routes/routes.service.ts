@@ -18,6 +18,14 @@ import { assertCapacity, assertPermutation, routeStateMachine, straightLineTotal
 import { findRoute, insertRouteEvent, routeEvents, routeStops, stopItems, type RouteRow, type StopRow } from './routes.repository';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida.');
+
+/**
+ * Pedidos que podem entrar numa rota: confirmados (estoque reservado) em
+ * qualquer etapa até "pronto". Ao entrar, avançam as etapas que faltam
+ * (CONFIRMED → PREPARING → READY → ROUTE_ASSIGNED), cada uma no histórico.
+ */
+const ROUTABLE_STATUSES = ['CONFIRMED', 'PREPARING', 'READY'] as const;
+const STEPS_TO_READY: Record<string, ('PREPARING' | 'READY')[]> = { CONFIRMED: ['PREPARING', 'READY'], PREPARING: ['READY'], READY: [] };
 const MAX_STOPS = 100;
 
 // -----------------------------------------------------------------------------
@@ -158,19 +166,25 @@ function routeActions(actor: UserActor, status: RouteStatus) {
 export async function listPlannableOrders(actor: UserActor, date: string) {
   authorize(actor, 'route.read');
   return withActorTransaction(toDbContext(actor), async (tx) => {
-    const rows = await tx<{ id: string; number: string; customer_id: string; customer_name: string | null; order_type: string; address: Record<string, string | null>; latitude: number | null; longitude: number | null; window_start: string | null; window_end: string | null; total_delivery: number; total_collection: number }[]>`
-      select o.id, o.number::text as number, o.customer_id, coalesce(c.trade_name, c.legal_name) as customer_name, o.order_type, o.address,
+    const rows = await tx<{ id: string; number: string; status: string; customer_id: string; customer_name: string | null; order_type: string; address: Record<string, string | null>; latitude: number | null; longitude: number | null; window_start: string | null; window_end: string | null; total_delivery: number; total_collection: number }[]>`
+      select o.id, o.number::text as number, o.status, o.customer_id, coalesce(c.trade_name, c.legal_name) as customer_name, o.order_type, o.address,
              o.latitude::float8 as latitude, o.longitude::float8 as longitude,
              to_char(o.window_start, 'HH24:MI') as window_start, to_char(o.window_end, 'HH24:MI') as window_end,
              coalesce((select sum(i.delivery_quantity) from public.order_items i where i.order_id = o.id), 0)::int as total_delivery,
              coalesce((select sum(i.collection_quantity) from public.order_items i where i.order_id = o.id), 0)::int as total_collection
         from public.orders o
         left join public.customers c on c.id = o.customer_id
-       where o.organization_id = app.current_org_id() and o.status = 'READY' and o.route_id is null and o.scheduled_date = ${date}::date
+       where o.organization_id = app.current_org_id() and o.status = any (${[...ROUTABLE_STATUSES]}::text[]) and o.route_id is null
+         and o.scheduled_date = ${date}::date
        order by o.window_start nulls last, o.number`;
-    return rows.map((o) => ({
+    // Pedidos da data que ainda não podem entrar (falta confirmar): a tela avisa em vez de sumir com eles.
+    const [waiting] = await tx<{ n: number }[]>`
+      select count(*)::int as n from public.orders
+       where organization_id = app.current_org_id() and status in ('DRAFT', 'NEW', 'RESCHEDULED') and scheduled_date = ${date}::date`;
+    const orders = rows.map((o) => ({
       id: o.id,
       number: formatOrderNumber(o.number),
+      status: o.status,
       customerId: o.customer_id,
       customerName: o.customer_name,
       type: o.order_type,
@@ -182,6 +196,7 @@ export async function listPlannableOrders(actor: UserActor, date: string) {
       totalDelivery: o.total_delivery,
       totalCollection: o.total_collection,
     }));
+    return { orders, awaitingConfirmation: waiting?.n ?? 0 };
   });
 }
 
@@ -240,7 +255,9 @@ async function addOrdersToRoute(tx: Tx, actor: UserActor, route: { id: string; d
   for (const o of locked) {
     const label = formatOrderNumber(o.number);
     if (o.route_id) throw new BusinessRuleError(`O pedido ${label} já está em outra rota.`);
-    if (o.status !== 'READY') throw new BusinessRuleError(`O pedido ${label} não está pronto (status ${o.status}).`);
+    if (!(ROUTABLE_STATUSES as readonly string[]).includes(o.status)) {
+      throw new BusinessRuleError(`O pedido ${label} precisa estar confirmado para entrar na rota (status atual: ${o.status}).`);
+    }
     if (o.scheduled_date !== route.date) throw new BusinessRuleError(`O pedido ${label} está agendado para outra data.`);
   }
   const existing = await routeOrderIds(tx, route.id);
@@ -253,6 +270,9 @@ async function addOrdersToRoute(tx: Tx, actor: UserActor, route: { id: string; d
   const byId = new Map(locked.map((o) => [o.id, o]));
   for (const orderId of orderIds) {
     const o = byId.get(orderId)!;
+    for (const step of STEPS_TO_READY[o.status] ?? []) {
+      await applyTransition(tx, actor, orderId, { to: step, reason: 'Avançado ao montar a rota', overrideStock: false, windowStart: null, windowEnd: null });
+    }
     await applyTransition(tx, actor, orderId, { to: 'ROUTE_ASSIGNED', overrideStock: false, windowStart: null, windowEnd: null });
     await tx`update public.orders set route_id = ${route.id}, driver_id = ${route.driverId} where id = ${orderId}`;
     seq += 1;

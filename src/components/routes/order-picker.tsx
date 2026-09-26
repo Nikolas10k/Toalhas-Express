@@ -1,7 +1,6 @@
 'use client';
 
-import { formatWindow } from '@/components/orders/labels';
-import { ORDER_TYPE_LABEL } from '@/components/orders/labels';
+import { formatWindow, ORDER_STATUS_LABEL, ORDER_TYPE_LABEL } from '@/components/orders/labels';
 import { cn } from '@/lib/utils';
 import { shortAddress, type PlannableOrder } from './types';
 
@@ -26,6 +25,9 @@ export function OrderPicker({ orders, selected, onToggle }: { orders: PlannableO
                 <span className="block text-xs">
                   {ORDER_TYPE_LABEL[o.type]}: entregar {o.totalDelivery}, coletar {o.totalCollection}
                   {(o.latitude === null || o.longitude === null) && <span className="ml-1 text-destructive">· sem localização no mapa</span>}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {o.status === 'READY' ? 'Pronto' : `${ORDER_STATUS_LABEL[o.status] ?? o.status} — será marcado como pronto ao entrar na rota`}
                 </span>
               </span>
             </label>

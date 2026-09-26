@@ -1,6 +1,7 @@
 export interface PlannableOrder {
   id: string;
   number: string;
+  status: string;
   customerId: string;
   customerName: string | null;
   type: string;
@@ -11,6 +12,12 @@ export interface PlannableOrder {
   windowEnd: string | null;
   totalDelivery: number;
   totalCollection: number;
+}
+
+export interface PlannableResponse {
+  orders: PlannableOrder[];
+  /** Pedidos da data ainda não confirmados (não podem entrar em rota). */
+  awaitingConfirmation: number;
 }
 
 export interface DriverOption {

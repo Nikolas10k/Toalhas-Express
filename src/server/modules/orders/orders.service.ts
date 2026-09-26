@@ -188,9 +188,9 @@ async function insertHistory(
   metadata: Record<string, unknown> = {},
 ) {
   await tx`
-    insert into public.order_status_history (organization_id, order_id, from_status, to_status, reason, metadata, actor_type, actor_id)
+    insert into public.order_status_history (organization_id, order_id, from_status, to_status, reason, metadata, actor_type, actor_id, created_at)
     values (${actor.organizationId}, ${orderId}, ${from}, ${to}, ${reason}, ${tx.json(metadata as never)}, ${actor.type},
-            ${actor.type === 'USER' ? actor.userId : actor.tokenId})
+            ${actor.type === 'USER' ? actor.userId : actor.tokenId}, clock_timestamp())
   `;
 }
 

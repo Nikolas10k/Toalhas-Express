@@ -118,7 +118,7 @@ describe('planejamento de rotas', () => {
     const o2 = await readyOrder(5);
     expect((await stock()).RESERVED).toBe(before.RESERVED + 15);
     const plannable = await listPlannableOrders(manager, today);
-    expect(plannable.map((p) => p.id)).toEqual(expect.arrayContaining([o1, o2]));
+    expect(plannable.orders.map((p) => p.id)).toEqual(expect.arrayContaining([o1, o2]));
 
     const key = `route-${randomUUID()}`;
     const input = { routeDate: today, driverId: driverA, orderIds: [o2, o1], notes: null };
@@ -166,12 +166,13 @@ describe('planejamento de rotas', () => {
     for (const id of [o1, o2, o3]) await transitionOrder(manager, id, { to: 'CANCELLED', reason: 'fim do teste', overrideStock: false, windowStart: null, windowEnd: null });
   });
 
-  it('rejeita pedido não pronto, de outra data, capacidade excedida e data passada', async () => {
+  it('rejeita pedido não confirmado, de outra data, capacidade excedida e data passada', async () => {
     const { id: notReady } = await createOrderByStaff(manager, {
       customerId: customer, type: 'DELIVERY', scheduledDate: today, windowStart: null, windowEnd: null,
-      items: [{ productId: product, deliveryQuantity: 1, collectionQuantity: 0 }], notes: null, internalNotes: null, confirmNow: true,
+      items: [{ productId: product, deliveryQuantity: 1, collectionQuantity: 0 }], notes: null, internalNotes: null, confirmNow: false,
     });
-    await expect(createRoute(manager, { routeDate: today, driverId: driverB, orderIds: [notReady], notes: null })).rejects.toThrow(/não está pronto/);
+    await expect(createRoute(manager, { routeDate: today, driverId: driverB, orderIds: [notReady], notes: null })).rejects.toThrow(/precisa estar confirmado/);
+    expect((await listPlannableOrders(manager, today)).awaitingConfirmation).toBeGreaterThanOrEqual(1);
     const other = await readyOrder(1, addDays(today, 1));
     await expect(createRoute(manager, { routeDate: today, driverId: driverB, orderIds: [other], notes: null })).rejects.toThrow(/outra data/);
     const big = await readyOrder(30);
@@ -181,6 +182,23 @@ describe('planejamento de rotas', () => {
     expect((await getOrderDetail(manager, big)).order.status).toBe('READY');
     await expect(createRoute(driverUserA, { routeDate: today, driverId: driverA, orderIds: [big], notes: null })).rejects.toBeInstanceOf(AuthorizationError);
     for (const id of [notReady, other, big]) await transitionOrder(manager, id, { to: 'CANCELLED', reason: 'fim do teste', overrideStock: false, windowStart: null, windowEnd: null });
+  });
+
+  it('pedido só confirmado entra na rota: avança separação → pronto → na rota, com histórico', async () => {
+    const before = await stock();
+    const { id } = await createOrderByStaff(manager, {
+      customerId: customer, type: 'DELIVERY', scheduledDate: today, windowStart: null, windowEnd: null,
+      items: [{ productId: product, deliveryQuantity: 3, collectionQuantity: 0 }], notes: null, internalNotes: null, confirmNow: true,
+    });
+    const plannable = await listPlannableOrders(manager, today);
+    expect(plannable.orders.find((o) => o.id === id)?.status).toBe('CONFIRMED');
+    const { id: routeId } = await createRoute(manager, { routeDate: today, driverId: driverB, orderIds: [id], notes: null });
+    const d = await getOrderDetail(manager, id);
+    expect(d.order.status).toBe('ROUTE_ASSIGNED');
+    expect(d.history.map((h) => h.to)).toEqual(['NEW', 'CONFIRMED', 'PREPARING', 'READY', 'ROUTE_ASSIGNED']);
+    expect((await stock()).RESERVED).toBe(before.RESERVED + 3);
+    await cancelRoute(manager, routeId, 'fim do teste');
+    await transitionOrder(manager, id, { to: 'CANCELLED', reason: 'fim do teste', overrideStock: false, windowStart: null, windowEnd: null });
   });
 
   it('duas rotas disputando o mesmo pedido ao mesmo tempo: só uma leva', async () => {
