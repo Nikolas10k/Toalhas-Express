@@ -55,7 +55,7 @@ O n8n é **orquestrador, não fonte de verdade**: não acessa o banco, não rece
 
 ## Google Maps
 
-- **Geocoding (Fase 2):** chave de servidor `GOOGLE_MAPS_SERVER_KEY`, restrita por API (Geocoding API; Routes API na Fase 5). Chamadas com `region=br`, `language=pt-BR`, `components=country:BR`.
+- **Geocoding (Fase 2):** chave de servidor `GOOGLE_MAPS_SERVER_KEY`, restrita por API (Geocoding API; Routes API na Fase 5). Chamadas com `region=br`, `language=pt-BR`, `components=country:BR` e `bounds` do Distrito Federal (preferência, não restrição — ajuda endereços como SQS/SQN e quadras). A região padrão fica em `src/lib/geo/defaults.ts`, que também define o centro dos mapas (Brasília).
 - Cada cadastro/alteração de endereço enfileira o job `customer.geocode` (retry com backoff). `REQUEST_DENIED`/`INVALID_REQUEST` não são repetidos (dead letter → alerta). Resultado `partial_match` ou `APPROXIMATE` vira `PARTIAL`.
 - Geocoding em massa: botão "Localizar pendentes" → job `customers.geocode_pending` enfileira até 200 clientes por vez.
 - Correção manual no mapa (status `MANUAL`) nunca é sobrescrita pelo geocoding automático.

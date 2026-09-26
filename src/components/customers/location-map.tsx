@@ -3,8 +3,8 @@
 import 'leaflet/dist/leaflet.css';
 import type { Map as LeafletMap, Marker } from 'leaflet';
 import { useEffect, useRef } from 'react';
+import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/lib/geo/defaults';
 
-const DEFAULT_CENTER: [number, number] = [-23.5505, -46.6333]; // São Paulo
 
 /**
  * Mapa com marcador (Leaflet + OpenStreetMap, sem chave de API). Em modo
@@ -37,8 +37,8 @@ export function LocationMap({
       const L = await import('leaflet');
       if (cancelled || !container.current || map.current) return;
       const hasPoint = latitude !== null && longitude !== null;
-      const center: [number, number] = hasPoint ? [latitude!, longitude!] : DEFAULT_CENTER;
-      map.current = L.map(container.current, { scrollWheelZoom: false }).setView(center, hasPoint ? 17 : 11);
+      const center: [number, number] = hasPoint ? [latitude!, longitude!] : DEFAULT_MAP_CENTER;
+      map.current = L.map(container.current, { scrollWheelZoom: false }).setView(center, hasPoint ? 17 : DEFAULT_MAP_ZOOM);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',

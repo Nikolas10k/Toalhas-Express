@@ -1,4 +1,5 @@
 import 'server-only';
+import { GEOCODE_BOUNDS_BIAS } from '@/lib/geo/defaults';
 import { ProviderError } from '@/server/core/errors';
 import type { GeocodeResult, MapsProvider, OptimizedRoute, RouteStopInput } from './maps-provider';
 
@@ -45,6 +46,7 @@ export class GoogleMapsProvider implements MapsProvider {
     url.searchParams.set('region', 'br');
     url.searchParams.set('language', 'pt-BR');
     url.searchParams.set('components', 'country:BR');
+    url.searchParams.set('bounds', GEOCODE_BOUNDS_BIAS);
     url.searchParams.set('key', this.apiKey);
 
     let res: Response;

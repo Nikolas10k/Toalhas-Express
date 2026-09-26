@@ -48,3 +48,13 @@ describe('Google Routes API', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe('Google Geocoding', () => {
+  it('prefere a região do DF sem restringir o país', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ status: 'ZERO_RESULTS' }), { status: 200 }));
+    await new GoogleMapsProvider('server-key', fetchImpl as unknown as typeof fetch).geocode('SQS 308 Bloco A, Brasília');
+    const url = new URL(String((fetchImpl.mock.calls[0] as unknown as [URL])[0]));
+    expect(url.searchParams.get('bounds')).toBe('-16.06,-48.29|-15.49,-47.30');
+    expect(url.searchParams.get('components')).toBe('country:BR');
+  });
+});

@@ -3,6 +3,7 @@
 import 'leaflet/dist/leaflet.css';
 import type { LayerGroup, Map as LeafletMap } from 'leaflet';
 import { useEffect, useRef } from 'react';
+import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/lib/geo/defaults';
 
 export interface MapPoint {
   id: string;
@@ -14,7 +15,6 @@ export interface MapPoint {
   tone: 'selected' | 'muted' | 'done';
 }
 
-const DEFAULT_CENTER: [number, number] = [-23.5505, -46.6333];
 const COLORS = { selected: '#0A9CD0', muted: '#94a3b8', done: '#16a34a' } as const;
 
 function escapeHtml(s: string) {
@@ -53,7 +53,7 @@ export function RouteMap({
       const L = await import('leaflet');
       if (cancelled || !container.current) return;
       if (!map.current) {
-        map.current = L.map(container.current, { scrollWheelZoom: false }).setView(DEFAULT_CENTER, 11);
+        map.current = L.map(container.current, { scrollWheelZoom: false }).setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
