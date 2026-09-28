@@ -111,6 +111,18 @@ A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION
 
 `app.customer_product_balance(cliente, produto)` devolve o saldo com o cliente para quem tem `inventory.read` ou é o motorista de uma rota aberta daquele cliente.
 
+## Tabelas da Fase 7
+
+| Tabela | Notas |
+|---|---|
+| `laundry_receipts` / `laundry_receipt_items` | Conferência na base, **uma por rota** (`unique(route_id)`): esperado (coletado nas paradas) × contado por produto. Append-only. |
+| `laundry_batches` | Lote `LV-00001` por org; WAITING → WASHING → DRYING → FOLDING → INSPECTION → COMPLETED ou CANCELLED (só de WAITING); lavanderia, observações, datas. Sem DELETE. |
+| `laundry_batch_items` | Quantidade por produto no lote (append-only). |
+| `laundry_inspections` | Resultado por produto: aprovadas, com dano, descarte (append-only; a soma fecha com o lote no service). |
+| `laundry_batch_events` | Histórico append-only das etapas. |
+
+`towel_movements.laundry_batch_id` ganhou FK. `app.laundry_queue()` e `app.pending_laundry_receipts()` (SECURITY DEFINER) exigem `laundry.read` e dão à lavanderia só o que ela precisa, sem abrir estoque e rotas inteiros.
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.

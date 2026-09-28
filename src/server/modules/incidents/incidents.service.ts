@@ -270,7 +270,9 @@ function shapeOf(i: IncidentRow) {
     quantity: i.quantity,
     productId: i.product_id,
     customerId: i.customer_id,
-    stage: (i.details.stage as 'COLLECTION' | 'DELIVERY' | undefined) ?? null,
+    stage: (i.details.stage as 'COLLECTION' | 'DELIVERY' | 'RECEIVING' | undefined) ?? null,
+    location: (i.details.location as 'AWAITING_LAUNDRY' | 'DAMAGED' | undefined) ?? null,
+    direction: (i.details.direction as 'MISSING' | 'EXTRA' | undefined) ?? null,
   };
 }
 
@@ -395,22 +397,29 @@ function planResolution(i: IncidentRow, input: ResolveInput, balance: number | n
   const unit = i.replacement_price_cents === null ? 0 : Number(i.replacement_price_cents);
   const base = { productId: i.product_id!, customerId: i.customer_id, orderId: i.order_id, routeId: i.route_id, routeStopId: i.route_stop_id, reason: `Ocorrência ${formatIncidentNumber(i.number)}: ${input.resolution}` };
   const key = (step: string) => `incident:${i.id}:${step}`;
-  const toDamaged: MovementInput = { ...base, type: 'DAMAGE', quantity: qty, from: 'AWAITING_LAUNDRY', to: 'DAMAGED', idempotencyKey: key('damage') };
+  // Toalhas separadas para lavar precisam antes ser marcadas como danificadas; as da inspeção já estão.
+  const alreadyDamaged = i.details.location === 'DAMAGED';
+  const toDamaged: MovementInput[] = alreadyDamaged ? [] : [{ ...base, type: 'DAMAGE', quantity: qty, from: 'AWAITING_LAUNDRY', to: 'DAMAGED', idempotencyKey: key('damage') }];
+  const internal = i.details.stage === 'RECEIVING';
 
   switch (input.decision) {
     case 'NO_ACTION':
       return { movements: [], charge: null, summary: 'Nenhuma movimentação de estoque nem cobrança.' };
     case 'RETURN_TO_LAUNDRY':
-      return { movements: [], charge: null, summary: `${plural(qty, 'toalha segue', 'toalhas seguem')} para a lavagem normalmente.` };
+      return {
+        movements: alreadyDamaged ? [{ ...base, type: 'TRANSFER', quantity: qty, from: 'DAMAGED', to: 'AWAITING_LAUNDRY', idempotencyKey: key('to_laundry') }] : [],
+        charge: null,
+        summary: `${plural(qty, 'toalha', 'toalhas')} de ${product} ${alreadyDamaged ? (qty === 1 ? 'volta' : 'voltam') + ' para a fila de lavagem' : (qty === 1 ? 'segue' : 'seguem') + ' para a lavagem normalmente'}.`,
+      };
     case 'RETURN_TO_STOCK':
       return {
-        movements: [toDamaged, { ...base, type: 'TRANSFER', quantity: qty, from: 'DAMAGED', to: 'AVAILABLE', idempotencyKey: key('to_stock') }],
+        movements: [...toDamaged, { ...base, type: 'TRANSFER', quantity: qty, from: 'DAMAGED', to: 'AVAILABLE', idempotencyKey: key('to_stock') }],
         charge: null,
         summary: `${plural(qty, 'toalha', 'toalhas')} de ${product} ${qty === 1 ? 'volta' : 'voltam'} ao estoque disponível.`,
       };
     case 'DISCARD':
     case 'CHARGE_CUSTOMER': {
-      const movements: MovementInput[] = [toDamaged, { ...base, type: 'DISCARD', quantity: qty, from: 'DAMAGED', to: 'DISCARDED', idempotencyKey: key('discard') }];
+      const movements: MovementInput[] = [...toDamaged, { ...base, type: 'DISCARD', quantity: qty, from: 'DAMAGED', to: 'DISCARDED', idempotencyKey: key('discard') }];
       if (input.decision === 'DISCARD') return { movements, charge: null, summary: `${plural(qty, 'toalha', 'toalhas')} de ${product} ${qty === 1 ? 'será descartada' : 'serão descartadas'}, sem cobrança.` };
       const amount = multiplyCents(cents(unit), qty);
       return {
@@ -420,6 +429,14 @@ function planResolution(i: IncidentRow, input: ResolveInput, balance: number | n
       };
     }
     case 'REGISTER_LOSS': {
+      if (internal) {
+        if (input.chargeCustomer) throw new BusinessRuleError('Falta na conferência é perda interna: não gera cobrança ao cliente.');
+        return {
+          movements: [{ ...base, customerId: null, type: 'LOSS', quantity: qty, from: 'AWAITING_LAUNDRY', to: 'LOST', idempotencyKey: key('loss') }],
+          charge: null,
+          summary: `${plural(qty, 'toalha', 'toalhas')} de ${product} que não ${qty === 1 ? 'chegou' : 'chegaram'} à base ${qty === 1 ? 'será registrada como perdida' : 'serão registradas como perdidas'} (perda interna, sem cobrança).`,
+        };
+      }
       if (balance !== null && qty > balance) throw new BusinessRuleError(`O cliente tem ${balance} toalha(s) deste produto no sistema; não é possível registrar perda de ${qty}.`);
       const movements: MovementInput[] = [{ ...base, type: 'LOSS', quantity: qty, from: 'WITH_CUSTOMER', to: 'LOST', idempotencyKey: key('loss') }];
       const after = balance === null ? null : balance - qty;

@@ -10,8 +10,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | 4 | Pedidos, máquina de estados, reserva com lock e recorrência | ✅ Concluída — [relatório](docs/reports/FASE-04.md) |
 | 5 | Motoristas, veículos, rotas e app do motorista (PWA) | ✅ Concluída — [relatório](docs/reports/FASE-05.md) |
 | 6 | Entrega, coleta, prova, ocorrências, dano e perda | ✅ Concluída — [relatório](docs/reports/FASE-06.md) |
-| 7 | Lavanderia (`laundry_batches`) | ⏳ Próxima |
-| 8 | Contratos e regras de cobrança | Pendente |
+| 7 | Lavanderia (`laundry_batches`) | ✅ Concluída — [relatório](docs/reports/FASE-07.md) |
+| 8 | Contratos e regras de cobrança | ⏳ Próxima |
 | 9 | Financeiro interno (billable events, receivables, charges, payments, ledger) | Pendente |
 | 10 | Asaas (PaymentProvider, webhook, conciliação) | Pendente |
 | 11 | WhatsApp (Business Platform) e n8n | Pendente |
@@ -99,6 +99,16 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] Finalizar rota devolve o que não foi entregue, conclui pedidos entregues e libera os com problema para replanejamento; equipe pode encerrar
 - [x] Telas: app do motorista (Atender, Registrar problema), Entregas, Coletas, Ocorrências, Perdas/Danos, abas do cliente, prova na rota, configuração da foto
 
+## Fase 7 — checklist
+
+- [x] Conferência na base por rota (esperado = coletado nas paradas × contado), uma vez por rota; diferença vira ocorrência (falta = possível perda interna; sobra = investigar)
+- [x] `laundry_batches` WAITING → WASHING → DRYING → FOLDING → INSPECTION → COMPLETED (cancelar só antes de lavar)
+- [x] Movimentos: montar lote (aguardando → em lavagem), ir para inspeção (em lavagem → em inspeção), inspeção (→ disponível / danificada / descarte), cancelar (→ volta à fila)
+- [x] Inspeção precisa fechar (aprovadas + dano + descarte = lote); dano vira ocorrência sem cliente com destino decidido pela equipe
+- [x] Leituras da lavanderia com permissão própria (`laundry.read`) via funções no banco
+- [x] Critério de aceite SPEC §14: 1000 → entrega 100 → coleta 80 → lavagem = 980 disponíveis e 20 com o cliente, sem divergência
+- [x] Telas: Lavanderia (fila, conferência, lotes) e detalhe do lote (etapas, inspeção, histórico)
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -139,3 +149,7 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D34 | Cobrança de perda/dano nasce como `billable_event` imutável e único por ocorrência | Cadeia billable_event → receivable → charge (Fase 9) sem risco de cobrança dupla |
 | D35 | Movimento interno pode declarar `authorizedBy` (só serviços; a API de estoque nunca) | Retorno automático de toalhas no fim da rota sem dar ao motorista a permissão geral de estoque |
 | D36 | Fotos reduzidas no aparelho (≤ 1600 px, JPEG) antes do upload | Rápido no 4G e remove EXIF (localização vai no registro, não na imagem) |
+| D37 | Toalhas saem da fila ao **montar** o lote (não ao começar a lavar) | Dois lotes nunca disputam as mesmas toalhas; cancelar antes de lavar devolve à fila |
+| D38 | Conferência na base não corrige estoque; diferença vira ocorrência | Nada corrigido em silêncio; a decisão (perda interna ou nenhuma ação) fica auditada |
+| D39 | Falta na conferência é perda interna e nunca gera cobrança ao cliente | A coleta já foi confirmada com o cliente na parada; o sumiço aconteceu depois |
+| D40 | Dano achado na lavanderia vira ocorrência sem cliente (sem opção de cobrar) | Desgaste de uso interno; destino (lavar de novo, estoque, descarte) decidido com impacto visível |

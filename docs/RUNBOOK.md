@@ -93,6 +93,13 @@ Mesmo procedimento para `outbox_events` (`status = 'PENDING', attempts = 0, next
 - **Atendimento registrado errado**: não se edita. Registre uma ocorrência e corrija o estoque com ajuste/estorno (fica tudo auditado).
 - **Cobranças pendentes** (Fase 9 fatura): `select kind, amount_cents, status from public.billable_events where status = 'PENDING';`
 
+## Lavanderia
+
+- **Rota não aparece para conferir**: só rotas **concluídas** com coleta entram na lista. Encerre a rota antes (tela da rota → Encerrar rota).
+- **Conferiu errado**: a conferência é única por rota e não se edita. Resolva a ocorrência gerada ("Sem movimentação") e corrija com ajuste de estoque auditado se necessário.
+- **Lote montado errado**: cancele enquanto estiver "Aguardando" (as toalhas voltam para a fila). Depois de começar a lavar, siga até a inspeção e ajuste pelos destinos.
+- **Toalhas paradas em "em lavagem" ou "em inspeção"**: `select l.number, l.status, l.updated_at from public.laundry_batches l where l.status not in ('COMPLETED','CANCELLED') order by l.updated_at;`
+
 ## Acesso e segurança
 
 - **Revogar token de integração**: `update public.integration_tokens set revoked_at = now() where id = '<id>';` (efeito imediato — RLS e resolução do ator checam `revoked_at`).

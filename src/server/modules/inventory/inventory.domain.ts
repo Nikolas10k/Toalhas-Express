@@ -59,6 +59,8 @@ export const MOVEMENT_RULES: Record<MovementType, readonly Edge[]> = {
     ['DAMAGED', 'AVAILABLE'],
     ['LOST', 'AVAILABLE'],
     ['AVAILABLE', 'AWAITING_LAUNDRY'],
+    // Lote de lavanderia cancelado antes de lavar: toalhas voltam para a fila.
+    ['IN_LAUNDRY', 'AWAITING_LAUNDRY'],
   ],
   DAMAGE: allTo(PHYSICAL, 'DAMAGED'),
   LOSS: allTo(PHYSICAL, 'LOST'),

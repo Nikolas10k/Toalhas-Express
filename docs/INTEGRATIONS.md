@@ -64,6 +64,7 @@ O n8n é **orquestrador, não fonte de verdade**: não acessa o banco, não rece
 - A chamada acontece fora da transação; a nova ordem só é aplicada se a rota ainda estiver planejada e com as mesmas paradas. Resposta que não seja uma permutação exata das paradas é descartada. Falha do Google não altera nada (a ordem manual continua disponível).
 - **Navegação do motorista:** link `https://www.google.com/maps/dir/?api=1&destination=lat,lng` (abre o app de mapas do celular; não usa chave).
 - **Fotos (Fase 6):** upload `POST /api/uploads` (multipart, campo `file`) → validação por magic bytes (JPEG/PNG/WEBP), 5 MB, rate limit, nome aleatório `org/AAAA-MM/uuid.ext` → Storage REST com a service role. Visualização por `GET /api/admin/attachments/:id` (link assinado de 5 min). Nenhuma URL pública.
+- Evento da lavanderia no outbox: `LaundryBatchCompleted` (lote, aprovadas, com dano, descarte).
 - Eventos de operação no outbox: `DeliveryCompleted`, `QuantityDivergenceDetected`, `IncidentOpened`, `IncidentResolved`, `BillableEventCreated`.
 - Eventos de rota no outbox: `RoutePlanned`, `RouteStarted`, `StopArrived`, `RouteCompleted`, `RouteCancelled`.
 

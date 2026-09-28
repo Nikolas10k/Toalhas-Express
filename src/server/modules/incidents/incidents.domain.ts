@@ -30,8 +30,15 @@ export interface IncidentShape {
   quantity: number;
   productId: string | null;
   customerId: string | null;
-  /** Etapa da divergência: toalhas que ficaram com o cliente (COLLECTION) ou voltaram na rota (DELIVERY). */
-  stage?: 'COLLECTION' | 'DELIVERY' | null;
+  /**
+   * Etapa da divergência: ficaram com o cliente (COLLECTION), voltaram na rota
+   * (DELIVERY) ou não chegaram à base na conferência (RECEIVING).
+   */
+  stage?: 'COLLECTION' | 'DELIVERY' | 'RECEIVING' | null;
+  /** Onde estão as toalhas da ocorrência: separadas para lavar (padrão) ou já marcadas como danificadas (inspeção). */
+  location?: 'AWAITING_LAUNDRY' | 'DAMAGED' | null;
+  /** Conferência: faltaram (MISSING) ou sobraram (EXTRA) toalhas. */
+  direction?: 'MISSING' | 'EXTRA' | null;
 }
 
 /**
@@ -41,7 +48,12 @@ export interface IncidentShape {
  */
 export function allowedDecisions(i: IncidentShape): Decision[] {
   const withStock = i.quantity > 0 && i.productId !== null;
-  if (i.type === 'DAMAGED' && withStock) return ['RETURN_TO_LAUNDRY', 'RETURN_TO_STOCK', 'DISCARD', 'CHARGE_CUSTOMER'];
+  if (i.type === 'DAMAGED' && withStock) {
+    // Dano achado na lavanderia (sem cliente): não há quem cobrar.
+    return i.customerId ? ['RETURN_TO_LAUNDRY', 'RETURN_TO_STOCK', 'DISCARD', 'CHARGE_CUSTOMER'] : ['RETURN_TO_LAUNDRY', 'RETURN_TO_STOCK', 'DISCARD'];
+  }
+  // Falta na conferência: perda interna (entre o cliente e a base), nunca cobrada do cliente.
+  if (i.type === 'QUANTITY_DIVERGENCE' && i.stage === 'RECEIVING') return withStock && i.direction === 'MISSING' ? ['NO_ACTION', 'REGISTER_LOSS'] : ['NO_ACTION'];
   const customerHolds = ['NOT_RETURNED', 'LOST', 'IN_USE'].includes(i.type) || (i.type === 'QUANTITY_DIVERGENCE' && i.stage === 'COLLECTION');
   if (customerHolds && withStock && i.customerId) return ['NO_ACTION', 'REGISTER_LOSS'];
   return ['NO_ACTION'];

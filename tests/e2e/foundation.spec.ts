@@ -231,3 +231,18 @@ test.describe('Fase 6 — entrega, coleta e ocorrências', () => {
     }
   });
 });
+
+test.describe('Fase 7 — lavanderia', () => {
+  test('APIs da lavanderia exigem autenticação', async ({ request, baseURL }) => {
+    for (const path of ['/api/admin/laundry', '/api/admin/laundry/batches']) {
+      expect((await request.get(path)).status(), path).toBe(401);
+    }
+    const res = await request.post('/api/admin/laundry/batches', { data: { items: [] }, headers: { origin: baseURL!, 'idempotency-key': 'e2e-lav-123456' } });
+    expect(res.status()).toBe(401);
+  });
+
+  test('página da lavanderia redireciona para o login', async ({ page }) => {
+    await page.goto('/admin/estoque/lavanderia');
+    await expect(page).toHaveURL(/\/login\?next=/);
+  });
+});
