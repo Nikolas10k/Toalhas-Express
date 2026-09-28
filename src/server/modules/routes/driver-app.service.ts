@@ -2,7 +2,7 @@ import 'server-only';
 import { z } from 'zod';
 import { formatAddress } from '@/lib/br/address';
 import { toDbContext, type UserActor } from '@/server/auth/actor';
-import { authorize } from '@/server/authz/authorize';
+import { authorize, hasPermission } from '@/server/authz/authorize';
 import { AuthorizationError, BusinessRuleError, NotFoundError } from '@/server/core/errors';
 import type { Tx } from '@/server/db/client';
 import { withActorTransaction } from '@/server/db/transaction';
@@ -13,6 +13,7 @@ import { reservedByOrder } from '@/server/modules/orders/orders.repository';
 import { applyTransition } from '@/server/modules/orders/orders.service';
 import { recordOutboxEvent } from '@/server/modules/outbox/outbox.service';
 import { assertCanFinish, navigationUrl, routeStateMachine, stopStateMachine, type StopStatus } from './routes.domain';
+import { geoSchema } from './geo.schema';
 import { findRoute, insertRouteEvent, routeStops, stopItems, type GeoPoint, type RouteRow } from './routes.repository';
 
 /**
@@ -21,15 +22,7 @@ import { findRoute, insertRouteEvent, routeStops, stopItems, type GeoPoint, type
  * dívidas nem notas internas.
  */
 
-export const geoSchema = z
-  .strictObject({
-    latitude: z.number().min(-90).max(90),
-    longitude: z.number().min(-180).max(180),
-    accuracy: z.number().min(0).max(100000).nullable().optional(),
-  })
-  .nullable()
-  .optional()
-  .transform((v) => v ?? null);
+export { geoSchema } from './geo.schema';
 
 async function currentDriverId(tx: Tx): Promise<string> {
   const [row] = await tx<{ id: string | null }[]>`select app.current_driver_id() as id`;
@@ -230,26 +223,76 @@ export async function driverStopAction(actor: UserActor, stopId: string, input: 
   });
 }
 
-/** Finaliza a rota quando nenhuma parada ficou aberta. */
+/**
+ * Finaliza a rota quando nenhuma parada ficou aberta: as toalhas que não
+ * foram entregues voltam ao estoque (IN_ROUTE → AVAILABLE), pedidos entregues
+ * são concluídos e pedidos com problema saem da rota para serem replanejados.
+ * O motorista finaliza a própria rota; a equipe (route.manage) pode encerrar.
+ */
 export async function finishRoute(actor: UserActor, routeId: string, geo: GeoPoint | null) {
-  authorize(actor, 'driver_app.access');
+  const staff = hasPermission(actor, 'route.manage');
+  if (!staff) authorize(actor, 'driver_app.access');
+  authorize(actor, 'operation.execute');
   return withActorTransaction(toDbContext(actor), async (tx) => {
-    const r = await ownRoute(tx, routeId, true);
-    if (r.status === 'COMPLETED') return { status: r.status, replayed: true };
+    let r: RouteRow;
+    if (staff) {
+      const found = await findRoute(tx, routeId, true);
+      if (!found) throw new NotFoundError('Rota não encontrada.');
+      r = found;
+    } else {
+      r = await ownRoute(tx, routeId, true);
+    }
+    if (r.status === 'COMPLETED') return { status: r.status, replayed: true, returned: 0 };
     routeStateMachine.assertTransition(r.status, 'COMPLETED');
     const stops = await tx<{ status: StopStatus }[]>`select status from public.route_stops where route_id = ${routeId} for update`;
     assertCanFinish(stops);
+
+    // Saldo "em rota" desta rota por produto: saiu − entregue − já devolvido.
+    const leftovers = await tx<{ product_id: string; q: number }[]>`
+      select product_id,
+             (coalesce(sum(quantity) filter (where to_state = 'IN_ROUTE'), 0) - coalesce(sum(quantity) filter (where from_state = 'IN_ROUTE'), 0))::int as q
+        from public.towel_movements
+       where route_id = ${routeId} and ('IN_ROUTE' in (from_state, to_state))
+       group by product_id`;
+    const returns = leftovers
+      .filter((l) => l.q > 0)
+      .map((l) => ({
+        productId: l.product_id,
+        type: 'TRANSFER' as const,
+        quantity: l.q,
+        from: 'IN_ROUTE' as const,
+        to: 'AVAILABLE' as const,
+        routeId,
+        driverId: r.driver_id,
+        reason: 'Retorno ao fim da rota (não entregues)',
+        idempotencyKey: `route:${routeId}:return:${l.product_id}`,
+        authorizedBy: 'operation.execute' as const,
+      }));
+    if (returns.length) await recordMovements(tx, actor, returns);
+    const returned = returns.reduce((a, m) => a + m.quantity, 0);
+
+    const orders = await tx<{ id: string; status: string }[]>`
+      select id, status from public.orders where route_id = ${routeId} and status in ('DELIVERED', 'DELIVERY_PROBLEM') order by id for update`;
+    for (const o of orders) {
+      if (o.status === 'DELIVERED') {
+        await applyTransition(tx, actor, o.id, { to: 'COMPLETED', overrideStock: false, windowStart: null, windowEnd: null });
+      } else {
+        // Continua em DELIVERY_PROBLEM para a equipe reagendar ou cancelar, mas livre para outra rota.
+        await tx`update public.orders set route_id = null, driver_id = null where id = ${o.id}`;
+      }
+    }
+
     await tx`update public.routes set status = 'COMPLETED', completed_at = now() where id = ${routeId}`;
-    await insertRouteEvent(tx, actor, { routeId, type: 'ROUTE_COMPLETED', from: r.status, to: 'COMPLETED', geo });
-    await recordAudit(tx, actor, actor.organizationId, { action: 'route.completed', entityType: 'route', entityId: routeId, after: { status: 'COMPLETED' } });
+    await insertRouteEvent(tx, actor, { routeId, type: 'ROUTE_COMPLETED', from: r.status, to: 'COMPLETED', geo: staff ? undefined : geo, metadata: { returned, closed_by: staff ? 'STAFF' : 'DRIVER' } });
+    await recordAudit(tx, actor, actor.organizationId, { action: 'route.completed', entityType: 'route', entityId: routeId, after: { status: 'COMPLETED', returned } });
     await recordOutboxEvent(tx, {
       organizationId: actor.organizationId,
       eventType: 'RouteCompleted',
       aggregateType: 'route',
       aggregateId: routeId,
-      payload: { route_id: routeId, route_date: r.route_date, driver_id: r.driver_id },
+      payload: { route_id: routeId, route_date: r.route_date, driver_id: r.driver_id, returned },
       idempotencyKey: `RouteCompleted:${routeId}`,
     });
-    return { status: 'COMPLETED' as const, replayed: false };
+    return { status: 'COMPLETED' as const, replayed: false, returned };
   });
 }

@@ -1,10 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowLeft, ArrowUp, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Flag, Plus, Sparkles, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { PROBLEM_TYPES } from '@/components/operations/labels';
+import { OperationsTable, type OperationItem } from '@/components/operations/operations-list';
 import { formatScheduleDate, formatWindow, ORDER_TYPE_LABEL } from '@/components/orders/labels';
 import { formatDistance, formatDuration, RouteStatusBadge, STOP_STATUS_LABEL, StopStatusBadge } from '@/components/routes/labels';
 import { OrderPicker } from '@/components/routes/order-picker';
@@ -67,7 +69,7 @@ interface RouteDetail {
   totalCollection: number;
   stops: Stop[];
   events: { id: string; stopId: string | null; type: string; from: string | null; to: string | null; reason: string | null; metadata: Record<string, unknown>; actorName: string | null; actorType: string; at: string }[];
-  actions: { edit: boolean; cancel: boolean };
+  actions: { edit: boolean; cancel: boolean; finish: boolean; reportProblem: boolean };
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -85,6 +87,19 @@ const EVENT_LABEL: Record<string, string> = {
 export function RouteDetailView({ id }: { id: string }) {
   const qc = useQueryClient();
   const [dialog, setDialog] = useState<'add' | 'cancel' | 'edit' | null>(null);
+  const [problemStop, setProblemStop] = useState<Stop | null>(null);
+  const ops = useQuery({
+    queryKey: ['operations', 'route', id],
+    queryFn: ({ signal }) => apiFetch<{ items: OperationItem[] }>(`/api/admin/operations?routeId=${id}`, { signal }),
+  });
+  const finish = useMutation({
+    mutationFn: () => apiFetch<{ returned: number }>(`/api/admin/routes/${id}/finish`, { body: {} }),
+    onSuccess: (res) => {
+      toast.success(res.returned ? `Rota encerrada. ${res.returned} toalha(s) não entregues voltaram ao estoque.` : 'Rota encerrada.');
+      refresh();
+    },
+    onError: (e) => toast.error(describeApiError(e)),
+  });
   const q = useQuery({ queryKey: ['route', id], queryFn: ({ signal }) => apiFetch<RouteDetail>(`/api/admin/routes/${id}`, { signal }) });
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['route', id] });
@@ -174,6 +189,11 @@ export function RouteDetailView({ id }: { id: string }) {
               Cancelar rota
             </Button>
           )}
+          {actions.finish && (
+            <Button disabled={finish.isPending} onClick={() => finish.mutate()}>
+              <Flag aria-hidden /> Encerrar rota
+            </Button>
+          )}
         </div>
       </div>
       {optimize.error && <Alert variant="destructive" className="mb-4">{describeApiError(optimize.error)}</Alert>}
@@ -219,6 +239,11 @@ export function RouteDetailView({ id }: { id: string }) {
                     {s.statusReason && <p className="text-xs text-muted-foreground">{s.statusReason}</p>}
                   </div>
                   <StopStatusBadge status={s.status} />
+                  {actions.reportProblem && ['PENDING', 'ON_THE_WAY', 'ARRIVED', 'IN_SERVICE'].includes(s.status) && (
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setProblemStop(s)}>
+                      <AlertTriangle aria-hidden /> Problema
+                    </Button>
+                  )}
                   {actions.edit && (
                     <div className="flex shrink-0 gap-1">
                       <Button size="icon" variant="ghost" aria-label={`Subir parada ${s.sequence}`} disabled={i === 0 || reorder.isPending} onClick={() => move(i, i - 1)}>
@@ -237,6 +262,14 @@ export function RouteDetailView({ id }: { id: string }) {
             </ol>
           </Card>
           {r.notes && <p className="text-sm">Observações: {r.notes}</p>}
+          {(ops.data?.items.length ?? 0) > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Atendimentos registrados</CardTitle>
+              </CardHeader>
+              <OperationsTable items={ops.data!.items} />
+            </Card>
+          )}
         </div>
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -266,7 +299,53 @@ export function RouteDetailView({ id }: { id: string }) {
       {dialog === 'add' && <AddOrdersDialog routeId={id} date={r.date} onClose={() => setDialog(null)} onDone={refresh} />}
       {dialog === 'cancel' && <CancelDialog routeId={id} onClose={() => setDialog(null)} onDone={refresh} />}
       {dialog === 'edit' && <EditDialog route={r} onClose={() => setDialog(null)} onDone={refresh} />}
+      {problemStop && (
+        <StaffProblemDialog
+          stop={problemStop}
+          onClose={() => setProblemStop(null)}
+          onDone={() => {
+            setProblemStop(null);
+            refresh();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function StaffProblemDialog({ stop, onClose, onDone }: { stop: Stop; onClose: () => void; onDone: () => void }) {
+  const [type, setType] = useState(PROBLEM_TYPES[0]![0]);
+  const [description, setDescription] = useState('');
+  const save = useMutation({
+    mutationFn: () => apiFetch(`/api/admin/stops/${stop.id}/problem`, { body: { type, description, attachmentIds: [], geo: null } }),
+    onSuccess: () => {
+      toast.success('Problema registrado na parada.');
+      onDone();
+    },
+  });
+  return (
+    <Dialog open onClose={onClose} title={`Problema na parada ${stop.sequence}`} description="Registro em nome do motorista (ex.: ele avisou por telefone). O pedido vai para 'Problema na entrega'.">
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <Field id="sp-type" label="O que aconteceu?">
+          <Select id="sp-type" value={type} onChange={(e) => setType(e.target.value)}>
+            {PROBLEM_TYPES.map(([k, l]) => (
+              <option key={k} value={k}>
+                {l}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field id="sp-desc" label="Descrição" required>
+          <Textarea id="sp-desc" maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        {save.error && <Alert variant="destructive">{describeApiError(save.error)}</Alert>}
+        <div className="flex justify-end">
+          <Button type="submit" variant="destructive" disabled={description.trim().length < 3 || save.isPending}>
+            Registrar
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

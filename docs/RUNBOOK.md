@@ -85,6 +85,14 @@ Mesmo procedimento para `outbox_events` (`status = 'PENDING', attempts = 0, next
 - **Rota iniciada por engano**: não há "desfazer" — as toalhas saíram do estoque (RESERVED → IN_ROUTE). Até a Fase 6 (registro de entrega/coleta/problema), corrija com transferência manual em Estoque (Em rota → Disponível, com motivo) e fale com o suporte para encerrar a rota.
 - **Carga do veículo**: `select product_id, sum(quantity) from public.towel_movements where route_id = '<id>' and movement_type = 'DELIVERY_DISPATCH' group by 1;`
 
+## Entregas, coletas e ocorrências
+
+- **Divergência de coleta**: abre ocorrência + alerta. Resolva em Operação → Ocorrências: "Sem movimentação" (cliente ainda usa) ou "Registrar como perda" (com ou sem cobrança). A prévia mostra o impacto antes de confirmar.
+- **Motorista sem sinal/app travado**: a equipe pode registrar "Problema" na parada pela tela da rota e encerrar a rota quando todas as paradas tiverem desfecho. Toalhas não entregues voltam sozinhas ao estoque no encerramento.
+- **Foto não sobe**: sem `SUPABASE_SERVICE_ROLE_KEY` o upload fica indisponível (o resto funciona; desligue "Foto obrigatória" em Configurações se necessário). Bucket: `operation-proofs` (privado).
+- **Atendimento registrado errado**: não se edita. Registre uma ocorrência e corrija o estoque com ajuste/estorno (fica tudo auditado).
+- **Cobranças pendentes** (Fase 9 fatura): `select kind, amount_cents, status from public.billable_events where status = 'PENDING';`
+
 ## Acesso e segurança
 
 - **Revogar token de integração**: `update public.integration_tokens set revoked_at = now() where id = '<id>';` (efeito imediato — RLS e resolução do ator checam `revoked_at`).

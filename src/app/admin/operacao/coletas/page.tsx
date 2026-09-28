@@ -1,0 +1,10 @@
+import type { Metadata } from 'next';
+import { OperationsList } from '@/components/operations/operations-list';
+import { requirePageActor } from '@/server/auth/guards';
+
+export const metadata: Metadata = { title: 'Coletas' };
+
+export default async function Page() {
+  await requirePageActor('route.read', '/admin/operacao/coletas');
+  return <OperationsList kind="collection" />;
+}

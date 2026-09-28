@@ -376,7 +376,10 @@ export async function applyTransition(tx: Tx, actor: AuthenticatedActor, orderId
            stock_override = stock_override or ${override},
            scheduled_date = coalesce(${newDate}::date, scheduled_date),
            window_start = case when ${newDate}::date is null then window_start else ${input.windowStart ?? null}::time end,
-           window_end = case when ${newDate}::date is null then window_end else ${input.windowEnd ?? null}::time end
+           window_end = case when ${newDate}::date is null then window_end else ${input.windowEnd ?? null}::time end,
+           -- Reagendado/cancelado sai da rota (a parada guarda o histórico).
+           route_id = case when ${to} in ('RESCHEDULED', 'CANCELLED') then null else route_id end,
+           driver_id = case when ${to} in ('RESCHEDULED', 'CANCELLED') then null else driver_id end
      where id = ${orderId}
   `;
   await insertHistory(tx, actor, orderId, from, to, reason, {

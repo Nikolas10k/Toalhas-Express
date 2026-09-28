@@ -23,6 +23,7 @@ export const RATE_LIMITS = {
   apiWriteByActor: { name: 'api.write:actor', max: 60, windowSeconds: 60 },
   integrationByToken: { name: 'api.integration:token', max: 120, windowSeconds: 60 },
   workerByIp: { name: 'worker.run:ip', max: 30, windowSeconds: 60 },
+  uploadByActor: { name: 'upload:actor', max: 60, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 function bucketKey(rule: RateLimitRule, identifier: string): string {

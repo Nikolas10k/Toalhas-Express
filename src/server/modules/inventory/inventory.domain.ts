@@ -107,6 +107,12 @@ export interface MovementInput {
   reversesMovementId?: string | null;
   idempotencyKey?: string | null;
   occurredAt?: Date;
+  /**
+   * Permissão que autoriza este movimento quando ele faz parte de um fluxo
+   * operacional já autorizado (ex.: retorno das toalhas não entregues ao
+   * finalizar a rota). Só serviços internos definem; a API de estoque nunca.
+   */
+  authorizedBy?: Permission;
 }
 
 export function validateMovement(m: MovementInput): void {

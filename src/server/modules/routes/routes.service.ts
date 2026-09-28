@@ -152,14 +152,20 @@ export async function getRouteDetail(actor: UserActor, id: string) {
         actorType: e.actor_type,
         at: e.created_at.toISOString(),
       })),
-      actions: routeActions(actor, r.status),
+      actions: routeActions(actor, r.status, stops.filter((x) => ['PENDING', 'ON_THE_WAY', 'ARRIVED', 'IN_SERVICE'].includes(x.status)).length),
     };
   });
 }
 
-function routeActions(actor: UserActor, status: RouteStatus) {
+function routeActions(actor: UserActor, status: RouteStatus, openStops: number) {
   const manage = actor.permissions.has('route.manage');
-  return { edit: manage && status === 'PLANNED', cancel: manage && status === 'PLANNED' };
+  return {
+    edit: manage && status === 'PLANNED',
+    cancel: manage && status === 'PLANNED',
+    // Encerrar pela equipe: todas as paradas com desfecho (atendida ou problema registrado).
+    finish: manage && actor.permissions.has('operation.execute') && status === 'IN_PROGRESS' && openStops === 0,
+    reportProblem: manage && actor.permissions.has('incident.report') && status === 'IN_PROGRESS',
+  };
 }
 
 /** Pedidos prontos, sem rota, agendados para a data — candidatos a parada. */

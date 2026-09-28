@@ -9,8 +9,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | 3 | Produtos, ledger de estoque (`towel_movements`) e saldo por cliente | ✅ Concluída — [relatório](docs/reports/FASE-03.md) |
 | 4 | Pedidos, máquina de estados, reserva com lock e recorrência | ✅ Concluída — [relatório](docs/reports/FASE-04.md) |
 | 5 | Motoristas, veículos, rotas e app do motorista (PWA) | ✅ Concluída — [relatório](docs/reports/FASE-05.md) |
-| 6 | Entrega, coleta, prova, ocorrências, dano e perda | ⏳ Próxima |
-| 7 | Lavanderia (`laundry_batches`) | Pendente |
+| 6 | Entrega, coleta, prova, ocorrências, dano e perda | ✅ Concluída — [relatório](docs/reports/FASE-06.md) |
+| 7 | Lavanderia (`laundry_batches`) | ⏳ Próxima |
 | 8 | Contratos e regras de cobrança | Pendente |
 | 9 | Financeiro interno (billable events, receivables, charges, payments, ledger) | Pendente |
 | 10 | Asaas (PaymentProvider, webhook, conciliação) | Pendente |
@@ -85,6 +85,20 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] Isolamento do motorista no backend e no RLS (só as próprias rotas; clientes só com rota aberta; nada financeiro)
 - [x] Telas: Rotas (com base de saída), Nova rota, Detalhe (mapa, paradas, linha do tempo), Motoristas, Veículos
 
+## Fase 6 — checklist
+
+- [x] Atendimento da parada numa transação: operação + itens (previsto × carregado × entregue; esperado × saldo × coletado × danificado) → movimentos → ocorrências → status → outbox
+- [x] Coleta com divergência cria `QUANTITY_DIVERGENCE` + alerta automaticamente; o restante segue com o cliente (nada corrigido em silêncio)
+- [x] Entrega a menor cria ocorrência; toalhas não entregues voltam ao estoque ao finalizar a rota
+- [x] Prova: recebedor, horário, geolocalização (ausência registrada sem bloquear) e fotos (obrigatórias se configurado)
+- [x] Fotos: tipo real pelos bytes, 5 MB, nome aleatório, bucket privado, link assinado de 5 min; redução no aparelho sem EXIF
+- [x] Problema na parada (fechado, recusa, endereço, outro) → parada FAILED/SKIPPED, pedido DELIVERY_PROBLEM, ocorrência
+- [x] Ocorrências OPEN → UNDER_REVIEW → RESOLVED | CANCELLED, responsável, histórico, fotos
+- [x] Dano (classificação + decisão RETURN_TO_LAUNDRY / RETURN_TO_STOCK / DISCARD / CHARGE_CUSTOMER) e perda (registrar com ou sem cobrança) com prévia do impacto
+- [x] `billable_events` gerado uma única vez por ocorrência (unique + trigger de imutabilidade); receivable/charge na Fase 9
+- [x] Finalizar rota devolve o que não foi entregue, conclui pedidos entregues e libera os com problema para replanejamento; equipe pode encerrar
+- [x] Telas: app do motorista (Atender, Registrar problema), Entregas, Coletas, Ocorrências, Perdas/Danos, abas do cliente, prova na rota, configuração da foto
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -119,3 +133,9 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D28 | Service worker sem cache de dados e sem fila offline | Dados de clientes não ficam no aparelho; nenhuma ação "fantasma" é registrada depois |
 | D29 | Motorista vê dados do cliente só com a rota aberta | Minimização (LGPD): depois de concluída, o histórico da rota fica sem dados pessoais para ele |
 | D30 | Pedido confirmado (ou em separação) pode entrar direto na rota; o sistema avança PREPARING → READY → ROUTE_ASSIGNED | Operação não precisa clicar etapa por etapa; cada avanço fica no histórico com o motivo "Avançado ao montar a rota" |
+| D31 | Coleta vai direto para "aguardando lavagem"; dano informado na coleta vira ocorrência e o destino (lavar, estoque, descarte, cobrança) é decidido pela equipe | Motorista não decide sobre estoque/cobrança; decisão fica auditada com impacto mostrado antes |
+| D32 | Coleta esperada = quantidade do pedido; sem quantidade no pedido, o saldo do cliente | Pedido de "trocar tudo" é o caso comum; pedido com quantidade explícita não gera falsa divergência |
+| D33 | Não se coleta mais do que o saldo do cliente no sistema | Evita saldo negativo; excedente vira ocorrência para investigação |
+| D34 | Cobrança de perda/dano nasce como `billable_event` imutável e único por ocorrência | Cadeia billable_event → receivable → charge (Fase 9) sem risco de cobrança dupla |
+| D35 | Movimento interno pode declarar `authorizedBy` (só serviços; a API de estoque nunca) | Retorno automático de toalhas no fim da rota sem dar ao motorista a permissão geral de estoque |
+| D36 | Fotos reduzidas no aparelho (≤ 1600 px, JPEG) antes do upload | Rápido no 4G e remove EXIF (localização vai no registro, não na imagem) |

@@ -50,7 +50,7 @@ export async function recordMovements(tx: Tx, actor: AuthenticatedActor, inputs:
   let manualTotal = 0;
   for (const m of inputs) {
     validateMovement(m);
-    authorize(actor, MOVEMENT_PERMISSION[m.type]);
+    authorize(actor, m.authorizedBy ?? MOVEMENT_PERMISSION[m.type]);
     if (m.type === 'MANUAL_ADJUSTMENT') manualTotal += m.quantity;
     if (m.allowNegative) authorize(actor, 'order.override_stock');
   }

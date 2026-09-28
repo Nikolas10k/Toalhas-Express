@@ -24,6 +24,12 @@ export const organizationSettingsSchema = z.object({
         .default(null),
     })
     .prefault({}),
+  operations: z
+    .object({
+      /** Foto obrigatória na prova de entrega/coleta. */
+      requireProofPhoto: z.boolean().default(false),
+    })
+    .prefault({}),
 });
 export type OrganizationSettings = z.infer<typeof organizationSettingsSchema>;
 
@@ -75,5 +81,29 @@ export async function updateCustomerSettings(actor: AuthenticatedActor, input: z
       after: input,
     });
     return { customers: input };
+  });
+}
+
+export const operationSettingsSchema = z.strictObject({
+  requireProofPhoto: z.boolean(),
+});
+
+export async function updateOperationSettings(actor: AuthenticatedActor, input: z.infer<typeof operationSettingsSchema>) {
+  authorize(actor, 'organization.manage');
+  return withActorTransaction(toDbContext(actor), async (tx) => {
+    const before = await readSettings(tx, actor.organizationId);
+    await tx`
+      update public.organizations
+         set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{operations}', ${tx.json(input)}, true)
+       where id = app.current_org_id()
+    `;
+    await recordAudit(tx, actor, actor.organizationId, {
+      action: 'organization.settings_updated',
+      entityType: 'organization',
+      entityId: actor.organizationId,
+      before: before.operations,
+      after: input,
+    });
+    return { operations: input };
   });
 }

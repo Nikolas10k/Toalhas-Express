@@ -52,4 +52,6 @@ export interface Permissions {
   inventoryMove: boolean;
   orders: boolean;
   orderCreate: boolean;
+  routes: boolean;
+  incidents: boolean;
 }

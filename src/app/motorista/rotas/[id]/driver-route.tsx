@@ -1,11 +1,18 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, MapPinned, Navigation, Phone, Play, Flag } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, ArrowLeft, ClipboardCheck, Flag, MapPinned, Navigation, Phone, Play } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { formatScheduleDate, formatWindow, ORDER_TYPE_LABEL } from '@/components/orders/labels';
+import { PROBLEM_TYPES } from '@/components/operations/labels';
+import { PhotoPicker, type PickedPhoto } from '@/components/operations/photo-picker';
 import { RouteStatusBadge, StopStatusBadge } from '@/components/routes/labels';
+import { Dialog } from '@/components/ui/dialog';
+import { Field } from '@/components/ui/field';
+import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -57,6 +64,7 @@ const OPEN = new Set(['PENDING', 'ON_THE_WAY', 'ARRIVED', 'IN_SERVICE']);
 
 export function DriverRouteView({ id }: { id: string }) {
   const qc = useQueryClient();
+  const [problemFor, setProblemFor] = useState<DriverStop | null>(null);
   const q = useQuery({
     queryKey: ['driver-route', id],
     queryFn: ({ signal }) => apiFetch<DriverRoute>(`/api/driver/routes/${id}`, { signal }),
@@ -146,19 +154,13 @@ export function DriverRouteView({ id }: { id: string }) {
               </Button>
             )}
             {(next.status === 'ARRIVED' || next.status === 'IN_SERVICE') && (
-              <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-2">
-                  {['Entregar', 'Coletar', 'Problema'].map((label) => (
-                    <Button key={label} variant="outline" className="h-12" disabled>
-                      {label}
-                    </Button>
-                  ))}
-                </div>
-                <p className="text-center text-xs text-muted-foreground">
-                  Registro de entrega, coleta e problemas chega na próxima atualização do app. Por enquanto, informe a operação.
-                </p>
-              </div>
+              <Link href={`/motorista/paradas/${next.id}`} className={cn(buttonVariants(), 'h-12 w-full')}>
+                <ClipboardCheck aria-hidden /> Atender (entregar / coletar)
+              </Link>
             )}
+            <Button variant="ghost" className="w-full text-destructive" onClick={() => setProblemFor(next)}>
+              <AlertTriangle aria-hidden /> Registrar problema
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -192,7 +194,56 @@ export function DriverRouteView({ id }: { id: string }) {
           ))}
         </ol>
       </section>
+      {problemFor && (
+        <ProblemDialog
+          stop={problemFor}
+          onClose={() => setProblemFor(null)}
+          onDone={() => {
+            setProblemFor(null);
+            refresh();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function ProblemDialog({ stop, onClose, onDone }: { stop: DriverStop; onClose: () => void; onDone: () => void }) {
+  const [type, setType] = useState(PROBLEM_TYPES[0]![0]);
+  const [description, setDescription] = useState('');
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const save = useMutation({
+    mutationFn: async () =>
+      apiFetch(`/api/driver/stops/${stop.id}/problem`, {
+        body: { type, description, attachmentIds: photos.map((p) => p.id), geo: await currentPosition() },
+      }),
+    onSuccess: () => {
+      toast.success('Problema registrado. A equipe vai tratar; siga para a próxima parada.');
+      onDone();
+    },
+  });
+  return (
+    <Dialog open onClose={onClose} title="Registrar problema" description={`${stop.customerName ?? 'Cliente'} — as toalhas seguem no veículo e voltam ao estoque no fim da rota.`}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <Field id="p-type" label="O que aconteceu?">
+          <Select id="p-type" className="h-12" value={type} onChange={(e) => setType(e.target.value)}>
+            {PROBLEM_TYPES.map(([k, l]) => (
+              <option key={k} value={k}>
+                {l}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field id="p-desc" label="Descreva" required>
+          <Textarea id="p-desc" maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <PhotoPicker photos={photos} onChange={setPhotos} />
+        {save.error && <Alert variant="destructive">{describeApiError(save.error)}</Alert>}
+        <Button type="submit" variant="destructive" className="h-12 w-full" disabled={description.trim().length < 3 || save.isPending}>
+          Registrar problema
+        </Button>
+      </form>
+    </Dialog>
   );
 }
 

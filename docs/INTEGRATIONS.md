@@ -11,7 +11,7 @@ Todos os serviços externos ficam atrás de interfaces em `src/server/providers/
 | Google Maps (Geocoding + Routes) | `MapsProvider` → `GoogleMapsProvider` | 2/5 | ✅ Adapter pronto | `GOOGLE_MAPS_SERVER_KEY` — **falta** (sem ela, localização fica pendente e a otimização de rota fica indisponível) |
 | OpenStreetMap (tiles do mapa) | `LocationMap` (Leaflet) | 2 | ✅ Ativo | nenhuma (atribuição exibida no mapa) |
 | WhatsApp Business Platform | `MessagingProvider` | 11 | Interface | via n8n — **faltam** |
-| Supabase Storage | `StorageProvider` | 6 | Interface | usa service role no servidor |
+| Supabase Storage | `StorageProvider` → `SupabaseStorageProvider` | 6 | ✅ Adapter pronto | usa `SUPABASE_SERVICE_ROLE_KEY` só no servidor; bucket privado `operation-proofs` criado pela migration |
 
 ## Supabase
 
@@ -63,6 +63,8 @@ O n8n é **orquestrador, não fonte de verdade**: não acessa o banco, não rece
 - **Otimização de rota (Fase 5):** Routes API `POST https://routes.googleapis.com/directions/v2:computeRoutes` com `optimizeWaypointOrder: true`, `travelMode: DRIVE`, `routingPreference: TRAFFIC_UNAWARE` (a otimização de ordem não aceita o modo com trânsito), chave no header `X-Goog-Api-Key` e `X-Goog-FieldMask: routes.distanceMeters,routes.duration,routes.optimizedIntermediateWaypointIndex`. Origem e destino = base de saída (Rotas → Base). Até 25 paradas por otimização. Habilite a **Routes API** no projeto do Google Cloud e inclua-a na restrição da chave.
 - A chamada acontece fora da transação; a nova ordem só é aplicada se a rota ainda estiver planejada e com as mesmas paradas. Resposta que não seja uma permutação exata das paradas é descartada. Falha do Google não altera nada (a ordem manual continua disponível).
 - **Navegação do motorista:** link `https://www.google.com/maps/dir/?api=1&destination=lat,lng` (abre o app de mapas do celular; não usa chave).
+- **Fotos (Fase 6):** upload `POST /api/uploads` (multipart, campo `file`) → validação por magic bytes (JPEG/PNG/WEBP), 5 MB, rate limit, nome aleatório `org/AAAA-MM/uuid.ext` → Storage REST com a service role. Visualização por `GET /api/admin/attachments/:id` (link assinado de 5 min). Nenhuma URL pública.
+- Eventos de operação no outbox: `DeliveryCompleted`, `QuantityDivergenceDetected`, `IncidentOpened`, `IncidentResolved`, `BillableEventCreated`.
 - Eventos de rota no outbox: `RoutePlanned`, `RouteStarted`, `StopArrived`, `RouteCompleted`, `RouteCancelled`.
 
 ## Supabase — auto cadastro (Fase 2)

@@ -203,3 +203,31 @@ test.describe('Fase 5 — rotas e app do motorista', () => {
     expect((await request.get('/offline.html')).status()).toBe(200);
   });
 });
+
+test.describe('Fase 6 — entrega, coleta e ocorrências', () => {
+  test('APIs de atendimento, ocorrências e fotos exigem autenticação', async ({ request, baseURL }) => {
+    for (const path of ['/api/admin/incidents', '/api/admin/operations']) {
+      expect((await request.get(path)).status(), path).toBe(401);
+    }
+    const id = '00000000-0000-4000-8000-000000000000';
+    const complete = await request.post(`/api/driver/stops/${id}/complete`, { data: { items: [] }, headers: { origin: baseURL! } });
+    expect(complete.status()).toBe(401);
+    const upload = await request.post('/api/uploads', { multipart: { file: { name: 'x.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff]) } }, headers: { origin: baseURL! } });
+    expect(upload.status()).toBe(401);
+  });
+
+  test('upload de outra origem é bloqueado antes de qualquer coisa (CSRF)', async ({ request }) => {
+    const res = await request.post('/api/uploads', {
+      multipart: { file: { name: 'x.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff]) } },
+      headers: { origin: 'https://evil.example' },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('páginas de operação redirecionam para o login', async ({ page }) => {
+    for (const path of ['/admin/operacao/ocorrencias', '/admin/operacao/entregas', '/admin/estoque/perdas-danos', '/motorista/paradas/00000000-0000-4000-8000-000000000000']) {
+      await page.goto(path);
+      await expect(page, path).toHaveURL(/\/login\?next=/);
+    }
+  });
+});

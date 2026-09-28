@@ -61,6 +61,13 @@ Prioridade em conflitos (SPEC §1): integridade financeira > segurança > integr
 
 `audit_logs` registra ator, ação, entidade, before/after (mascarados), IP, user agent, `request_id` e `correlation_id`. Na Fase 1: login (sucesso/falha com fingerprint do e-mail), recuperação/troca de senha, MFA (cadastro, verificação, falha), bootstrap de admin. As fases seguintes auditam clientes, contratos, estoque, cobranças, cancelamentos, pagamentos manuais, estornos, permissões e usuários.
 
+## Uploads de fotos (Fase 6)
+
+- Tipo validado pelo conteúdo (magic bytes), nunca pela extensão/Content-Type; 5 MB por foto, 5 por registro, 60 uploads/hora por usuário.
+- Nome interno aleatório; bucket privado; leitura só por link assinado de 5 minutos para quem enxerga o registro (RLS).
+- Foto enviada só pode ser vinculada pelo próprio autor e uma única vez (trigger impede troca de vínculo).
+- O app reduz a imagem no aparelho e descarta EXIF; a geolocalização da prova é gravada no registro com a precisão informada.
+
 ## Uploads (importação CSV)
 
 - Somente `.csv`, MIME permitido (`text/csv`, `application/vnd.ms-excel`, `text/plain`), até 2 MB, até 5.000 linhas, 60 colunas e 2.000 caracteres por célula; arquivo com byte nulo é recusado como binário.

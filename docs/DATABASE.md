@@ -98,6 +98,19 @@ A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION
 
 `orders.route_id`/`driver_id` e `towel_movements.route_id`/`route_stop_id`/`driver_id` ganharam FKs. `organizations.settings.routes.depot` guarda a base de saída; `app.set_route_depot()` permite a quem tem `route.manage` alterar só esse campo.
 
+## Tabelas da Fase 6
+
+| Tabela | Notas |
+|---|---|
+| `stop_operations` | Atendimento da parada (append-only, **um por parada**): recebedor, observações, geolocalização (`CAPTURED`/`UNAVAILABLE`), ator. |
+| `stop_operation_items` | Por produto: previsto, carregado, entregue, coleta esperada, saldo do cliente antes, coletado, danificado. CHECKs: entregue ≤ carregado; coletado ≤ saldo; danificado ≤ coletado. Append-only. |
+| `incidents` | Número `OC-00001` por org; tipos da SPEC §7; status OPEN → UNDER_REVIEW → RESOLVED/CANCELLED; vínculos com cliente, pedido, rota, parada, operação, produto; `details` (etapa da divergência, esperado, realizado); classificação de dano; decisão; valor cobrado. Sem DELETE. |
+| `incident_events` | Histórico append-only da ocorrência. |
+| `billable_events` | Fato cobrável (perda/dano): `unique(org, source_type, source_id)`, `amount_cents = quantity × unit_price_cents`, valores imutáveis por trigger (só o status muda). |
+| `attachments` | Fotos em bucket privado (`operation-proofs`): tipo real, tamanho, SHA-256, quem enviou; vínculo com operação/ocorrência definitivo (trigger). |
+
+`app.customer_product_balance(cliente, produto)` devolve o saldo com o cliente para quem tem `inventory.read` ou é o motorista de uma rota aberta daquele cliente.
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.
@@ -107,6 +120,7 @@ A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION
 - `jobs`/`outbox_events`: app_user só insere na própria org e só enxerga a coluna `idempotency_key` (necessária para `ON CONFLICT`).
 - `customers`: equipe com `customer.read`/`customer.update`; usuário do portal (`portal.access`) só enxerga e altera os clientes vinculados a ele em `customer_users`. O service restringe as colunas que o cliente pode alterar (contato e preferências).
 - `orders` e derivados: equipe com `order.read` (escrita com `order.create`/`order.update`/`order.cancel`; `order.create_draft` só cria DRAFT); portal só os pedidos dos clientes vinculados; token de integração só enxerga os rascunhos que ele mesmo criou.
+- Fase 6: atendimentos visíveis à equipe (`route.read`), ao motorista da rota e ao próprio cliente; ocorrências com `incident.read` (quem reportou vê as suas); cobráveis só com `finance.read` ou `incident.manage` — motorista e cliente nunca veem; criar cobrável exige `incident.manage` **e** `finance.create_charge`.
 - Motorista (`driver_app.access`): `app.current_driver_id()`, `app.driver_can_see_order()` e `app.driver_can_see_customer()` (SECURITY DEFINER) limitam rotas, paradas, pedidos, movimentos e clientes às rotas do próprio motorista — clientes só enquanto a rota está aberta.
 
 ## Testes de banco

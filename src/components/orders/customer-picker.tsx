@@ -21,7 +21,16 @@ interface CustomerRow {
 }
 
 /** Busca de cliente por nome, documento ou telefone (mesma API da lista de clientes). */
-export function CustomerPicker({ value, onChange }: { value: PickedCustomer | null; onChange: (c: PickedCustomer | null) => void }) {
+export function CustomerPicker({
+  value,
+  onChange,
+  allowInactive = false,
+}: {
+  value: PickedCustomer | null;
+  onChange: (c: PickedCustomer | null) => void;
+  /** Ocorrências valem para qualquer cliente; pedidos só para ativos. */
+  allowInactive?: boolean;
+}) {
   const [term, setTerm] = useState('');
   const search = term.trim();
   const q = useQuery({
@@ -60,14 +69,14 @@ export function CustomerPicker({ value, onChange }: { value: PickedCustomer | nu
               <button
                 type="button"
                 className="flex w-full items-center justify-between gap-2 p-2 text-left text-sm hover:bg-accent disabled:opacity-50"
-                disabled={c.status !== 'active'}
+                disabled={!allowInactive && c.status !== 'active'}
                 onClick={() => onChange({ id: c.id, name: c.tradeName ?? c.legalName, status: c.status })}
               >
                 <span>
                   {c.tradeName ?? c.legalName}
                   {c.city && <span className="text-muted-foreground"> · {c.city}</span>}
                 </span>
-                {c.status !== 'active' && <span className="text-xs text-muted-foreground">{c.status === 'pending' ? 'aguardando aprovação' : 'inativo/suspenso'}</span>}
+                {!allowInactive && c.status !== 'active' && <span className="text-xs text-muted-foreground">{c.status === 'pending' ? 'aguardando aprovação' : 'inativo/suspenso'}</span>}
               </button>
             </li>
           ))}
