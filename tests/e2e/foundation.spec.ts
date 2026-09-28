@@ -246,3 +246,20 @@ test.describe('Fase 7 — lavanderia', () => {
     await expect(page).toHaveURL(/\/login\?next=/);
   });
 });
+
+test.describe('Fase 8 — contratos', () => {
+  test('APIs de contratos exigem autenticação', async ({ request, baseURL }) => {
+    for (const path of ['/api/admin/contracts', '/api/portal/contract']) {
+      expect((await request.get(path)).status(), path).toBe(401);
+    }
+    const res = await request.post('/api/admin/contracts', { data: {}, headers: { origin: baseURL!, 'idempotency-key': 'e2e-ctr-123456' } });
+    expect(res.status()).toBe(401);
+  });
+
+  test('páginas de contratos redirecionam para o login', async ({ page }) => {
+    for (const path of ['/admin/contratos', '/admin/contratos/novo', '/portal/contrato']) {
+      await page.goto(path);
+      await expect(page, path).toHaveURL(/\/login\?next=/);
+    }
+  });
+});

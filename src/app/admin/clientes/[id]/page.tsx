@@ -29,6 +29,8 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         orderCreate: p.has('order.create'),
         routes: p.has('route.read'),
         incidents: p.has('incident.read'),
+        contracts: p.has('contract.read'),
+        contractManage: p.has('contract.manage'),
       }}
     />
   );

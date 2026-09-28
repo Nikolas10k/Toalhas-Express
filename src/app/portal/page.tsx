@@ -1,4 +1,4 @@
-import { CalendarClock, FileText, Package, ShoppingBag, UserCog, Wallet } from 'lucide-react';
+import { CalendarClock, FileSignature, FileText, Package, ShoppingBag, UserCog, Wallet } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Alert } from '@/components/ui/alert';
@@ -16,6 +16,7 @@ const SHORTCUTS = [
   { label: 'Novo pedido', icon: ShoppingBag, href: '/portal/pedidos/novo' },
   { label: 'Meus pedidos', icon: FileText, href: '/portal/pedidos' },
   { label: 'Minhas toalhas', icon: Package, href: '/portal/toalhas' },
+  { label: 'Meu contrato', icon: FileSignature, href: '/portal/contrato' },
   { label: 'Financeiro', icon: Wallet, href: null },
   { label: 'Meus dados', icon: UserCog, href: '/portal/meus-dados' },
 ];

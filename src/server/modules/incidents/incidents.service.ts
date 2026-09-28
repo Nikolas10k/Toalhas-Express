@@ -11,6 +11,7 @@ import { linkAttachments, listAttachmentIds } from '@/server/modules/attachments
 import { recordAudit } from '@/server/modules/audit/audit.service';
 import type { MovementInput } from '@/server/modules/inventory/inventory.domain';
 import { recordMovements } from '@/server/modules/inventory/inventory.service';
+import { lossDamagePrice } from '@/server/modules/contracts/contracts.domain';
 import { formatOrderNumber } from '@/server/modules/orders/orders.domain';
 import { recordOutboxEvent } from '@/server/modules/outbox/outbox.service';
 import {
@@ -388,13 +389,32 @@ function brl(c: number) {
 }
 
 /** Monta o impacto da decisão (mesma função para a prévia e para a execução). */
-function planResolution(i: IncidentRow, input: ResolveInput, balance: number | null): Plan {
+interface Prices {
+  lossCents: number;
+  damageCents: number;
+  /** Contrato de onde veio o preço (null = preço de reposição do produto). */
+  contractId: string | null;
+}
+
+/** Preço de perda/dano: o do contrato vigente do cliente, senão o de reposição do produto. */
+async function pricesFor(tx: Tx, i: IncidentRow): Promise<Prices> {
+  const replacement = i.replacement_price_cents === null ? 0 : Number(i.replacement_price_cents);
+  if (!i.customer_id || !i.product_id) return { lossCents: replacement, damageCents: replacement, contractId: null };
+  const [c] = await tx<{ loss_price_cents: string | null; damage_price_cents: string | null; contract_id: string }[]>`
+    select loss_price_cents::text, damage_price_cents::text, contract_id from app.contract_loss_damage_price(${i.customer_id}, ${i.product_id})`;
+  return {
+    lossCents: lossDamagePrice(c ? { lossPriceCents: c.loss_price_cents === null ? null : Number(c.loss_price_cents), damagePriceCents: null } : null, 'LOSS', replacement),
+    damageCents: lossDamagePrice(c ? { lossPriceCents: null, damagePriceCents: c.damage_price_cents === null ? null : Number(c.damage_price_cents) } : null, 'DAMAGE', replacement),
+    contractId: c?.contract_id ?? null,
+  };
+}
+
+function planResolution(i: IncidentRow, input: ResolveInput, balance: number | null, prices: Prices): Plan {
   const allowed = allowedDecisions(shapeOf(i));
   if (!allowed.includes(input.decision)) throw new BusinessRuleError('Decisão não se aplica a este tipo de ocorrência.');
   const qty = i.quantity;
   const product = i.product_name ?? 'produto';
   const customer = i.customer_name ?? 'o cliente';
-  const unit = i.replacement_price_cents === null ? 0 : Number(i.replacement_price_cents);
   const base = { productId: i.product_id!, customerId: i.customer_id, orderId: i.order_id, routeId: i.route_id, routeStopId: i.route_stop_id, reason: `Ocorrência ${formatIncidentNumber(i.number)}: ${input.resolution}` };
   const key = (step: string) => `incident:${i.id}:${step}`;
   // Toalhas separadas para lavar precisam antes ser marcadas como danificadas; as da inspeção já estão.
@@ -421,6 +441,7 @@ function planResolution(i: IncidentRow, input: ResolveInput, balance: number | n
     case 'CHARGE_CUSTOMER': {
       const movements: MovementInput[] = [...toDamaged, { ...base, type: 'DISCARD', quantity: qty, from: 'DAMAGED', to: 'DISCARDED', idempotencyKey: key('discard') }];
       if (input.decision === 'DISCARD') return { movements, charge: null, summary: `${plural(qty, 'toalha', 'toalhas')} de ${product} ${qty === 1 ? 'será descartada' : 'serão descartadas'}, sem cobrança.` };
+      const unit = prices.damageCents;
       const amount = multiplyCents(cents(unit), qty);
       return {
         movements,
@@ -442,6 +463,7 @@ function planResolution(i: IncidentRow, input: ResolveInput, balance: number | n
       const after = balance === null ? null : balance - qty;
       const saldo = after === null ? '' : `, reduzindo o saldo dele para ${after}`;
       if (!input.chargeCustomer) return { movements, charge: null, summary: `${plural(qty, 'toalha', 'toalhas')} de ${product} ${qty === 1 ? 'será registrada como perdida' : 'serão registradas como perdidas'} para ${customer}${saldo}, sem cobrança.` };
+      const unit = prices.lossCents;
       const amount = multiplyCents(cents(unit), qty);
       return {
         movements,
@@ -457,7 +479,7 @@ export async function previewResolution(actor: UserActor, id: string, input: Res
   return withActorTransaction(toDbContext(actor), async (tx) => {
     const i = await findIncident(tx, id);
     if (!i) throw new NotFoundError('Ocorrência não encontrada.');
-    const plan = planResolution(i, input, await customerBalance(tx, i.customer_id, i.product_id));
+    const plan = planResolution(i, input, await customerBalance(tx, i.customer_id, i.product_id), await pricesFor(tx, i));
     return {
       summary: plan.summary,
       movements: plan.movements.map((m) => ({ type: m.type, quantity: m.quantity, from: m.from, to: m.to })),
@@ -473,7 +495,7 @@ export async function resolveIncident(actor: UserActor, id: string, input: Resol
     const i = await findIncident(tx, id, true);
     if (!i) throw new NotFoundError('Ocorrência não encontrada.');
     incidentStateMachine.assertTransition(i.status, 'RESOLVED');
-    const plan = planResolution(i, input, await customerBalance(tx, i.customer_id, i.product_id));
+    const plan = planResolution(i, input, await customerBalance(tx, i.customer_id, i.product_id), await pricesFor(tx, i));
     if (plan.charge) authorize(actor, 'finance.create_charge');
     if (plan.movements.length) await recordMovements(tx, actor, plan.movements);
 

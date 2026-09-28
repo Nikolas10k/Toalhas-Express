@@ -123,6 +123,16 @@ A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION
 
 `towel_movements.laundry_batch_id` ganhou FK. `app.laundry_queue()` e `app.pending_laundry_receipts()` (SECURITY DEFINER) exigem `laundry.read` e dão à lavanderia só o que ela precisa, sem abrir estoque e rotas inteiros.
 
+## Tabelas da Fase 8
+
+| Tabela | Notas |
+|---|---|
+| `contracts` | Contrato `CT-00001` por org; tipo de cobrança, vigência, renovação, vencimento, mensalidade, valor por entrega, desconto (pontos-base), revisão. **Um vigente por cliente** (`contracts_customer_current_uidx`). Sem DELETE. |
+| `contract_items` | Por produto: contratada, franquia, preço por peça, excedente, perda e dano (nulos = preço de reposição). Substituídos a cada revisão. |
+| `contract_revisions` | Fotografia completa após cada alteração (criação, edição, status, renovação). Append-only. |
+
+`orders.contract_id` ganhou FK. `app.contract_loss_damage_price(customer, product)` (SECURITY DEFINER) devolve o preço de perda/dano do contrato vigente para quem resolve ocorrências. RLS: equipe com `contract.read`; cliente vê só os próprios contratos não rascunho/cancelados; escrita exige `contract.manage`.
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.

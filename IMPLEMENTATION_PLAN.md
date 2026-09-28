@@ -11,8 +11,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | 5 | Motoristas, veículos, rotas e app do motorista (PWA) | ✅ Concluída — [relatório](docs/reports/FASE-05.md) |
 | 6 | Entrega, coleta, prova, ocorrências, dano e perda | ✅ Concluída — [relatório](docs/reports/FASE-06.md) |
 | 7 | Lavanderia (`laundry_batches`) | ✅ Concluída — [relatório](docs/reports/FASE-07.md) |
-| 8 | Contratos e regras de cobrança | ⏳ Próxima |
-| 9 | Financeiro interno (billable events, receivables, charges, payments, ledger) | Pendente |
+| 8 | Contratos e regras de cobrança | ✅ Concluída — [relatório](docs/reports/FASE-08.md) |
+| 9 | Financeiro interno (billable events, receivables, charges, payments, ledger) | ⏳ Próxima |
 | 10 | Asaas (PaymentProvider, webhook, conciliação) | Pendente |
 | 11 | WhatsApp (Business Platform) e n8n | Pendente |
 | 12 | Dashboards, relatórios, diagnóstico de consistência e alertas | Pendente |
@@ -109,6 +109,18 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] Critério de aceite SPEC §14: 1000 → entrega 100 → coleta 80 → lavagem = 980 disponíveis e 20 com o cliente, sem divergência
 - [x] Telas: Lavanderia (fila, conferência, lotes) e detalhe do lote (etapas, inspeção, histórico)
 
+## Fase 8 — checklist
+
+- [x] Contrato por cliente: número `CT-00001`, vigência, status DRAFT → ACTIVE ↔ SUSPENDED → ENDED / DRAFT → CANCELLED, renovação (automática, manual, sem), dia de vencimento 1–28
+- [x] Tipos de cobrança `MONTHLY_FIXED | PER_DELIVERY | PER_QUANTITY | HYBRID | CUSTOM` com validação do que cada um exige
+- [x] Itens: quantidade contratada, franquia, preço por peça, excedente, perda e dano (vazio = preço de reposição)
+- [x] Um contrato vigente por cliente (índice único parcial); cliente pendente não ativa
+- [x] Cálculo do mês em serviço de domínio puro (centavos, proporcional, desconto em pontos-base); simulação usa as entregas reais
+- [x] Alteração de contrato vigente exige motivo; revisão imutável + auditoria com antes/depois
+- [x] Resolução de perda/dano usa o preço do contrato vigente
+- [x] Job diário de renovação (estende ou encerra, idempotente)
+- [x] Telas: Contratos (lista, novo, detalhe com simulação e revisões), aba Contrato do cliente, "Meu contrato" no portal
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -153,3 +165,8 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D38 | Conferência na base não corrige estoque; diferença vira ocorrência | Nada corrigido em silêncio; a decisão (perda interna ou nenhuma ação) fica auditada |
 | D39 | Falta na conferência é perda interna e nunca gera cobrança ao cliente | A coleta já foi confirmada com o cliente na parada; o sumiço aconteceu depois |
 | D40 | Dano achado na lavanderia vira ocorrência sem cliente (sem opção de cobrar) | Desgaste de uso interno; destino (lavar de novo, estoque, descarte) decidido com impacto visível |
+| D41 | Um contrato vigente (ACTIVE/SUSPENDED) por cliente, garantido no banco | Evita cobrança dupla e ambiguidade no preço de perda/dano |
+| D42 | Uso variável = toalhas efetivamente entregues nas paradas concluídas | Cobrança baseada no que aconteceu, não no que foi pedido |
+| D43 | Mensalidade proporcional aos dias de vigência no mês (configurável), arredondamento meio-para-cima em centavos | Início/fim no meio do mês sem conta manual; inteiros evitam erro de ponto flutuante |
+| D44 | Preço de perda/dano vem do contrato por função SECURITY DEFINER, independente de quem resolve | O valor cobrado não pode variar conforme a permissão de quem clica |
+| D45 | `CUSTOM` não calcula variável automaticamente (só mensalidade, se houver) | Regras fora do padrão ficam com o financeiro, sinalizadas como manuais |

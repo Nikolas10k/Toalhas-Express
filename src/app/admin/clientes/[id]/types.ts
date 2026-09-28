@@ -54,4 +54,6 @@ export interface Permissions {
   orderCreate: boolean;
   routes: boolean;
   incidents: boolean;
+  contracts: boolean;
+  contractManage: boolean;
 }

@@ -16,6 +16,7 @@ import { apiFetch, ApiError, describeApiError } from '@/lib/api-client';
 import { formatDocument } from '@/lib/br/documents';
 import type { CustomerUpdateData } from '@/lib/validation/customers';
 import { AuditTab } from './audit-tab';
+import { ContractTab } from './contract-tab';
 import { CommunicationTab } from './communication-tab';
 import { LgpdActions } from './lgpd-actions';
 import { IncidentsTab, OperationsTab } from './operations-tabs';
@@ -26,7 +27,6 @@ import { TowelsTab } from './towels-tab';
 import type { Customer360Data, CustomerDetail, Permissions } from './types';
 
 const FUTURE_TABS: Record<string, { label: string; phase: number; text: string }> = {
-  contrato: { label: 'Contrato', phase: 8, text: 'Contrato, franquia e regras de cobrança.' },
   financeiro: { label: 'Financeiro', phase: 9, text: 'Cobranças, pagamentos e inadimplência.' },
 };
 
@@ -91,6 +91,7 @@ export function Customer360({ id, can }: { id: string; can: Permissions }) {
     ...(can.inventory ? [{ id: 'toalhas', label: 'Toalhas' }] : []),
     ...(can.routes ? [{ id: 'entregas', label: 'Entregas/Coletas' }] : []),
     ...(can.incidents ? [{ id: 'ocorrencias', label: 'Ocorrências' }] : []),
+    ...(can.contracts ? [{ id: 'contrato', label: 'Contrato' }] : []),
     ...Object.entries(FUTURE_TABS).map(([tid, t]) => ({ id: tid, label: t.label })),
     { id: 'comunicacao', label: 'Comunicação' },
     ...(can.audit ? [{ id: 'auditoria', label: 'Auditoria' }] : []),
@@ -175,6 +176,7 @@ export function Customer360({ id, can }: { id: string; can: Permissions }) {
         {tab === 'pedidos' && can.orders && <OrdersTab customerId={id} canCreate={can.orderCreate && c.status === 'active' && !anonymized} />}
         {tab === 'entregas' && can.routes && <OperationsTab customerId={id} />}
         {tab === 'ocorrencias' && can.incidents && <IncidentsTab customerId={id} />}
+        {tab === 'contrato' && can.contracts && <ContractTab customerId={id} canCreate={can.contractManage && !anonymized} />}
         {tab === 'comunicacao' && <CommunicationTab customer={c} />}
         {tab === 'auditoria' && can.audit && <AuditTab customerId={id} />}
       </div>

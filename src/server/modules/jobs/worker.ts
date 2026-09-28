@@ -14,6 +14,7 @@ import {
   geocodePendingHandler,
 } from '@/server/modules/customers/geocoding.service';
 import { INVENTORY_CHECK_JOB, inventoryCheckHandler } from '@/server/modules/inventory/consistency.service';
+import { RENEWAL_JOB, renewalHandler } from '@/server/modules/contracts/contracts.service';
 import { GENERATE_RECURRING_JOB, generateRecurringHandler } from '@/server/modules/orders/recurrence.service';
 
 /** Registro central de handlers. Cada fase adiciona os seus aqui. */
@@ -24,6 +25,7 @@ export function buildJobHandlers(): ReadonlyMap<string, JobHandler> {
     [GEOCODE_PENDING_JOB, geocodePendingHandler],
     [INVENTORY_CHECK_JOB, inventoryCheckHandler],
     [GENERATE_RECURRING_JOB, generateRecurringHandler],
+    [RENEWAL_JOB, renewalHandler],
   ]);
 }
 
@@ -54,9 +56,10 @@ export async function runWorkerCycle() {
     }),
   );
 
-  await withSystemTransaction((tx) =>
-    enqueueJob(tx, { type: GENERATE_RECURRING_JOB, organizationId: null, idempotencyKey: `${GENERATE_RECURRING_JOB}:${today}`, maxAttempts: 5 }),
-  );
+  await withSystemTransaction(async (tx) => {
+    await enqueueJob(tx, { type: GENERATE_RECURRING_JOB, organizationId: null, idempotencyKey: `${GENERATE_RECURRING_JOB}:${today}`, maxAttempts: 5 });
+    await enqueueJob(tx, { type: RENEWAL_JOB, organizationId: null, idempotencyKey: `${RENEWAL_JOB}:${today}`, maxAttempts: 5 });
+  });
 
   const publisher = buildOutboxPublisher();
   if (!publisher) logger.warn('outbox.publisher_not_configured');
