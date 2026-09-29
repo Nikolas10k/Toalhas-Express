@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { apiFetch, describeApiError } from '@/lib/api-client';
@@ -29,6 +30,7 @@ interface Product {
   replacementPriceCents: number;
   minStock: number;
   active: boolean;
+  kind: 'RENTAL' | 'LINEN';
 }
 
 interface FormState {
@@ -41,9 +43,10 @@ interface FormState {
   minStock: string;
   initialQuantity: string;
   active: boolean;
+  kind: 'RENTAL' | 'LINEN';
 }
 
-const EMPTY: FormState = { sku: '', name: '', size: '', category: '', cost: '', replacement: '', minStock: '0', initialQuantity: '0', active: true };
+const EMPTY: FormState = { sku: '', name: '', size: '', category: '', cost: '', replacement: '', minStock: '0', initialQuantity: '0', active: true, kind: 'RENTAL' };
 
 export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { canManage: boolean; canSeeStock: boolean; canEnterStock: boolean }) {
   const [entryFor, setEntryFor] = useState<string | null>(null);
@@ -92,6 +95,7 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
             minStock: String(p.minStock),
             initialQuantity: '0',
             active: p.active,
+            kind: p.kind,
           },
     );
   }
@@ -99,10 +103,11 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
   function submit() {
     const costCents = parseBRLToCents(form.cost || '0');
     const replacementPriceCents = parseBRLToCents(form.replacement || '0');
-    const minStock = Number(form.minStock);
+    const linen = form.kind === 'LINEN';
+    const minStock = linen ? 0 : Number(form.minStock);
     if (costCents === null || replacementPriceCents === null) return setFormError('Valores em reais inválidos. Ex.: 15,90');
     if (!Number.isInteger(minStock) || minStock < 0) return setFormError('Estoque mínimo inválido.');
-    const initialQuantity = Number(form.initialQuantity || '0');
+    const initialQuantity = linen ? 0 : Number(form.initialQuantity || '0');
     if (!Number.isInteger(initialQuantity) || initialQuantity < 0) return setFormError('Quantidade inicial inválida.');
     setFormError(null);
     save.mutate({
@@ -114,7 +119,8 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
       replacementPriceCents,
       minStock,
       active: form.active,
-      ...(editing === 'new' && canEnterStock ? { initialQuantity } : {}),
+      kind: form.kind,
+      ...(editing === 'new' && canEnterStock && !linen ? { initialQuantity } : {}),
     });
   }
 
@@ -125,7 +131,7 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
       <Link href="/admin/estoque" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" aria-hidden /> Estoque
       </Link>
-      <PageHeader title="Produtos" description="Tipos de toalha controlados no estoque.">
+      <PageHeader title="Produtos" description="Toalhas de aluguel (estoque) e peças de enxoval de clientes (higienização, sem estoque).">
         {canManage && (
           <Button onClick={() => open('new')}>
             <Plus aria-hidden /> Novo produto
@@ -170,7 +176,14 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
             {q.data?.map((p) => (
               <TR key={p.id}>
                 <TD className="font-mono text-xs">{p.sku}</TD>
-                <TD className="font-medium">{p.name}</TD>
+                <TD className="font-medium">
+                  {p.name}
+                  {p.kind === 'LINEN' && (
+                    <Badge variant="secondary" className="ml-2">
+                      Enxoval do cliente
+                    </Badge>
+                  )}
+                </TD>
                 <TD>{p.size ?? '—'}</TD>
                 <TD>{p.category ?? '—'}</TD>
                 <TD className="text-right tabular-nums">{formatCents(p.costCents)}</TD>
@@ -184,7 +197,7 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
                 <TD className="text-right tabular-nums">{p.minStock}</TD>
                 <TD>{p.active ? <Badge variant="success">Ativo</Badge> : <Badge variant="secondary">Inativo</Badge>}</TD>
                 <TD className="whitespace-nowrap text-right">
-                  {canEnterStock && p.active && (
+                  {canEnterStock && p.active && p.kind === 'RENTAL' && (
                     <Button size="sm" variant="outline" onClick={() => setEntryFor(p.id)}>
                       <PackagePlus aria-hidden /> Dar entrada
                     </Button>
@@ -204,6 +217,12 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
       <Dialog open={editing !== null} onClose={() => setEditing(null)} title={editing === 'new' ? 'Novo produto' : 'Editar produto'}>
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
           <div className="grid gap-4 sm:grid-cols-2">
+            <Field id="p-kind" label="Tipo" hint="Enxoval do cliente: roupa de hotel/spa que lavamos e devolvemos (não entra no estoque).">
+              <Select id="p-kind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as FormState['kind'] })}>
+                <option value="RENTAL">Toalha de aluguel (nosso estoque)</option>
+                <option value="LINEN">Enxoval do cliente (higienização)</option>
+              </Select>
+            </Field>
             <Field id="p-sku" label="SKU" required hint="Ex.: TOA-BANHO-70">
               <Input id="p-sku" value={form.sku} onChange={set('sku')} />
             </Field>
@@ -222,10 +241,12 @@ export function ProductsManager({ canManage, canSeeStock, canEnterStock }: { can
             <Field id="p-repl" label="Preço de reposição (R$)" hint="Cobrado em perdas/danos.">
               <Input id="p-repl" inputMode="decimal" value={form.replacement} onChange={set('replacement')} placeholder="0,00" />
             </Field>
-            <Field id="p-min" label="Estoque mínimo (disponível)">
-              <Input id="p-min" inputMode="numeric" value={form.minStock} onChange={set('minStock')} />
-            </Field>
-            {editing === 'new' && canEnterStock && (
+            {form.kind === 'RENTAL' && (
+              <Field id="p-min" label="Estoque mínimo (disponível)">
+                <Input id="p-min" inputMode="numeric" value={form.minStock} onChange={set('minStock')} />
+              </Field>
+            )}
+            {editing === 'new' && canEnterStock && form.kind === 'RENTAL' && (
               <Field id="p-initial" label="Quantidade inicial em estoque" hint="Toalhas que já estão disponíveis hoje. Vira uma entrada no histórico.">
                 <Input id="p-initial" inputMode="numeric" value={form.initialQuantity} onChange={set('initialQuantity')} />
               </Field>

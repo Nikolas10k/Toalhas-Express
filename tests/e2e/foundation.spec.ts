@@ -263,3 +263,18 @@ test.describe('Fase 8 — contratos', () => {
     }
   });
 });
+
+test.describe('Fase 8B — lavanderia enxuta e enxoval de clientes', () => {
+  test('APIs de produção e OS de enxoval exigem autenticação', async ({ request, baseURL }) => {
+    expect((await request.get('/api/admin/linen')).status()).toBe(401);
+    const headers = { origin: baseURL!, 'idempotency-key': 'e2e-enx-123456' };
+    for (const path of ['/api/admin/laundry/production', '/api/admin/linen/deliveries']) {
+      expect((await request.post(path, { data: {}, headers })).status(), path).toBe(401);
+    }
+  });
+
+  test('romaneio redireciona para o login', async ({ page }) => {
+    await page.goto('/admin/rotas/00000000-0000-4000-8000-000000000000/romaneio');
+    await expect(page).toHaveURL(/\/login\?next=/);
+  });
+});

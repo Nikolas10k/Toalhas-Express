@@ -15,6 +15,7 @@ import { Tabs } from '@/components/ui/tabs';
 import { apiFetch, ApiError, describeApiError } from '@/lib/api-client';
 import { formatDocument } from '@/lib/br/documents';
 import type { CustomerUpdateData } from '@/lib/validation/customers';
+import { ServiceOrdersList } from '@/app/admin/estoque/lavanderia/laundry-overview';
 import { AuditTab } from './audit-tab';
 import { ContractTab } from './contract-tab';
 import { CommunicationTab } from './communication-tab';
@@ -92,6 +93,7 @@ export function Customer360({ id, can }: { id: string; can: Permissions }) {
     ...(can.routes ? [{ id: 'entregas', label: 'Entregas/Coletas' }] : []),
     ...(can.incidents ? [{ id: 'ocorrencias', label: 'Ocorrências' }] : []),
     ...(can.contracts ? [{ id: 'contrato', label: 'Contrato' }] : []),
+    ...(can.laundry ? [{ id: 'enxoval', label: 'Enxoval' }] : []),
     ...Object.entries(FUTURE_TABS).map(([tid, t]) => ({ id: tid, label: t.label })),
     { id: 'comunicacao', label: 'Comunicação' },
     ...(can.audit ? [{ id: 'auditoria', label: 'Auditoria' }] : []),
@@ -177,6 +179,7 @@ export function Customer360({ id, can }: { id: string; can: Permissions }) {
         {tab === 'entregas' && can.routes && <OperationsTab customerId={id} />}
         {tab === 'ocorrencias' && can.incidents && <IncidentsTab customerId={id} />}
         {tab === 'contrato' && can.contracts && <ContractTab customerId={id} canCreate={can.contractManage && !anonymized} />}
+        {tab === 'enxoval' && can.laundry && <ServiceOrdersList customerId={id} canManage={can.laundryManage} />}
         {tab === 'comunicacao' && <CommunicationTab customer={c} />}
         {tab === 'auditoria' && can.audit && <AuditTab customerId={id} />}
       </div>

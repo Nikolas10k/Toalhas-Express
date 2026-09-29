@@ -55,13 +55,14 @@ export interface ItemRow {
   product_id: string;
   sku: string;
   name: string;
+  kind: 'RENTAL' | 'LINEN';
   delivery_quantity: number;
   collection_quantity: number;
 }
 
 export async function orderItems(tx: Tx, orderId: string): Promise<ItemRow[]> {
   return tx<ItemRow[]>`
-    select i.product_id, p.sku, p.name, i.delivery_quantity, i.collection_quantity
+    select i.product_id, p.sku, p.name, p.kind, i.delivery_quantity, i.collection_quantity
       from public.order_items i join public.products p on p.id = i.product_id
      where i.order_id = ${orderId} order by p.name
   `;

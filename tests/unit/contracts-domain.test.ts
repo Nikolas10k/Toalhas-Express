@@ -97,3 +97,21 @@ describe('datas e preços auxiliares', () => {
     expect(lossDamagePrice(null, 'LOSS', 1500)).toBe(1500);
   });
 });
+
+describe('higienização de enxoval do cliente (por peça)', () => {
+  const linen = { productId: 'l1', productName: 'Lençol casal', kind: 'LINEN' as const, contractedQuantity: 0, franchiseQuantity: 0, unitPriceCents: 250, excessPriceCents: 0, lossPriceCents: null, damagePriceCents: null };
+  it('cobra por peça do rol em qualquer tipo de contrato, somando à mensalidade', () => {
+    const b = computeMonthBilling({ ...base, items: [item, linen] }, '2026-03', { ...usage(0), linenByProduct: { l1: 120 } });
+    expect(b.lines.map((l) => [l.kind, l.amountCents])).toEqual([['MONTHLY_FEE', 50_000], ['LINEN_SERVICE', 30_000]]);
+    expect(b.totalCents).toBe(80_000);
+  });
+  it('contrato só de enxoval (por peça) é válido; enxoval sem preço ou com franquia é recusado', () => {
+    expect(() => assertTermsConsistent({ ...base, billingType: 'PER_QUANTITY', monthlyFeeCents: 0, items: [linen] })).not.toThrow();
+    expect(() => assertTermsConsistent({ ...base, billingType: 'PER_QUANTITY', items: [{ ...linen, unitPriceCents: 0 }] })).toThrow(BusinessRuleError);
+    expect(() => assertTermsConsistent({ ...base, billingType: 'HYBRID', items: [item, { ...linen, franchiseQuantity: 10 }] })).toThrow(/sem franquia/);
+  });
+  it('HYBRID ignora o enxoval na franquia e no excedente', () => {
+    const b = computeMonthBilling({ ...base, billingType: 'HYBRID', items: [item, linen] }, '2026-03', { deliveries: 4, deliveredByProduct: { p1: 160, l1: 999 }, linenByProduct: { l1: 10 } });
+    expect(b.lines.map((l) => [l.kind, l.quantity])).toEqual([['MONTHLY_FEE', 1], ['EXCESS', 10], ['LINEN_SERVICE', 10]]);
+  });
+});

@@ -100,6 +100,13 @@ Mesmo procedimento para `outbox_events` (`status = 'PENDING', attempts = 0, next
 - **Lote montado errado**: cancele enquanto estiver "Aguardando" (as toalhas voltam para a fila). Depois de começar a lavar, siga até a inspeção e ajuste pelos destinos.
 - **Toalhas paradas em "em lavagem" ou "em inspeção"**: `select l.number, l.status, l.updated_at from public.laundry_batches l where l.status not in ('COMPLETED','CANCELLED') order by l.updated_at;`
 
+## Lavanderia enxuta e enxoval
+
+- **"Mais do que as sujas registradas"** ao lançar produção: a coleta dessas toalhas não foi registrada (ou já foi lançada). Confira em Estoque → Movimentações; se entraram sujas sem coleta, registre uma transferência para "aguardando lavagem" com motivo.
+- **OS de enxoval não aparece para entregar**: precisa estar "Pronta". No planejamento de rotas, use "Gerar entregas"; pedido cancelado libera a OS para gerar de novo.
+- **Peça de enxoval faltando**: marcar a OS como pronta exige explicação e abre ocorrência (só registro; não mexe em estoque).
+- **Coleta de enxoval lançada no cliente errado**: cancele a OS (só antes de ficar pronta) com o motivo e registre a correta.
+
 ## Contratos
 
 - **"Cliente já tem contrato vigente"**: encerre ou suspenda o atual antes de ativar outro (só um vigente por cliente).

@@ -36,6 +36,8 @@ export interface ContractTerms {
 export interface ContractItemTerms {
   productId: string;
   productName: string;
+  /** LINEN = enxoval do cliente: cobrado por peça higienizada (unitPriceCents), em qualquer tipo de contrato. */
+  kind?: 'RENTAL' | 'LINEN';
   contractedQuantity: number;
   franchiseQuantity: number;
   unitPriceCents: number;
@@ -48,7 +50,13 @@ export interface ContractItemTerms {
 export function assertTermsConsistent(t: Pick<ContractTerms, 'billingType' | 'monthlyFeeCents' | 'perDeliveryFeeCents' | 'items'>): void {
   const ids = t.items.map((i) => i.productId);
   if (new Set(ids).size !== ids.length) throw new BusinessRuleError('Produto repetido nos itens do contrato.');
-  for (const i of t.items) {
+  const linen = t.items.filter((i) => i.kind === 'LINEN');
+  const rental = t.items.filter((i) => i.kind !== 'LINEN');
+  for (const i of linen) {
+    if (i.unitPriceCents <= 0) throw new BusinessRuleError(`${i.productName || 'Enxoval'}: informe o preço por peça higienizada.`);
+    if (i.franchiseQuantity > 0 || i.excessPriceCents > 0) throw new BusinessRuleError('Enxoval do cliente é cobrado só por peça higienizada (sem franquia).');
+  }
+  for (const i of rental) {
     if (i.franchiseQuantity > 0 && t.billingType !== 'HYBRID' && t.billingType !== 'CUSTOM') {
       throw new BusinessRuleError('Franquia só se aplica a contratos híbridos (mensalidade + excedente).');
     }
@@ -61,11 +69,12 @@ export function assertTermsConsistent(t: Pick<ContractTerms, 'billingType' | 'mo
       if (t.perDeliveryFeeCents <= 0) throw new BusinessRuleError('Informe o valor por entrega.');
       return;
     case 'PER_QUANTITY':
-      if (t.items.length === 0 || t.items.some((i) => i.unitPriceCents <= 0)) throw new BusinessRuleError('Informe o preço por peça de cada produto.');
+      // Contrato só de higienização (hotel/spa) é "por peça" com itens de enxoval.
+      if (t.items.length === 0 || rental.some((i) => i.unitPriceCents <= 0)) throw new BusinessRuleError('Informe o preço por peça de cada produto.');
       return;
     case 'HYBRID':
       if (t.monthlyFeeCents <= 0) throw new BusinessRuleError('Informe a mensalidade do contrato híbrido.');
-      if (t.items.length === 0 || t.items.some((i) => i.excessPriceCents <= 0)) throw new BusinessRuleError('Informe franquia e preço de excedente de cada produto.');
+      if (rental.length === 0 || rental.some((i) => i.excessPriceCents <= 0)) throw new BusinessRuleError('Informe franquia e preço de excedente de cada produto.');
       return;
     case 'CUSTOM':
       return;
@@ -127,9 +136,11 @@ export interface MonthUsage {
   deliveries: number;
   /** Toalhas entregues por produto no mês. */
   deliveredByProduct: Record<string, number>;
+  /** Peças de enxoval do cliente higienizadas (rol das coletas) por produto no mês. */
+  linenByProduct?: Record<string, number>;
 }
 
-export type LineKind = 'MONTHLY_FEE' | 'DELIVERY_FEE' | 'QUANTITY' | 'EXCESS';
+export type LineKind = 'MONTHLY_FEE' | 'DELIVERY_FEE' | 'QUANTITY' | 'EXCESS' | 'LINEN_SERVICE';
 
 export interface BillingLine {
   kind: LineKind;
@@ -160,6 +171,7 @@ export interface MonthBilling {
 export function computeMonthBilling(t: ContractTerms, month: string, usage: MonthUsage): MonthBilling {
   const days = coveredDays(month, t.startsOn, t.endsOn);
   const total = daysInMonth(month);
+  const rental = t.items.filter((i) => i.kind !== 'LINEN');
   const lines: BillingLine[] = [];
   const base = { month, dueDate: dueDateFor(month, t.dueDay), coveredDays: days };
   if (days === 0) return { ...base, lines, subtotalCents: 0, discountCents: 0, totalCents: 0, requiresManual: false };
@@ -188,14 +200,14 @@ export function computeMonthBilling(t: ContractTerms, month: string, usage: Mont
       }
       break;
     case 'PER_QUANTITY':
-      for (const i of t.items) {
+      for (const i of rental) {
         const q = usage.deliveredByProduct[i.productId] ?? 0;
         if (q > 0) lines.push({ kind: 'QUANTITY', description: `${i.productName} entregues`, productId: i.productId, quantity: q, unitCents: i.unitPriceCents, amountCents: mul(q, i.unitPriceCents) });
       }
       break;
     case 'HYBRID':
       fee('Mensalidade (franquia inclusa)');
-      for (const i of t.items) {
+      for (const i of rental) {
         const excess = Math.max(0, (usage.deliveredByProduct[i.productId] ?? 0) - i.franchiseQuantity);
         if (excess > 0) {
           lines.push({ kind: 'EXCESS', description: `${i.productName}: ${excess} acima da franquia de ${i.franchiseQuantity}`, productId: i.productId, quantity: excess, unitCents: i.excessPriceCents, amountCents: mul(excess, i.excessPriceCents) });
@@ -205,6 +217,12 @@ export function computeMonthBilling(t: ContractTerms, month: string, usage: Mont
     case 'CUSTOM':
       fee('Mensalidade');
       break;
+  }
+  // Higienização de enxoval do cliente: por peça, independente do tipo de contrato.
+  for (const i of t.items) {
+    if (i.kind !== 'LINEN') continue;
+    const q = usage.linenByProduct?.[i.productId] ?? 0;
+    if (q > 0) lines.push({ kind: 'LINEN_SERVICE', description: `${i.productName}: higienização`, productId: i.productId, quantity: q, unitCents: i.unitPriceCents, amountCents: mul(q, i.unitPriceCents) });
   }
 
   const subtotal = lines.reduce((a, l) => a + l.amountCents, 0);

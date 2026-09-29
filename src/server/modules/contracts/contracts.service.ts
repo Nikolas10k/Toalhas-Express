@@ -6,6 +6,7 @@ import { BusinessRuleError, ConflictError, NotFoundError, ValidationError } from
 import { logger } from '@/server/core/logger';
 import type { Tx } from '@/server/db/client';
 import { isUniqueViolation, withActorTransaction, withSystemTransaction } from '@/server/db/transaction';
+import { linenUsage } from '@/server/modules/linen/linen.service';
 import { recordAudit } from '@/server/modules/audit/audit.service';
 import { executeIdempotent } from '@/server/modules/idempotency/idempotency.service';
 import type { JobHandler } from '@/server/modules/jobs/jobs.service';
@@ -107,6 +108,7 @@ async function findContract(tx: Tx, id: string, forUpdate = false): Promise<Cont
 interface ItemRow {
   product_id: string;
   product_name: string;
+  product_kind: 'RENTAL' | 'LINEN';
   replacement_price_cents: string;
   contracted_quantity: number;
   franchise_quantity: number;
@@ -118,7 +120,7 @@ interface ItemRow {
 
 async function contractItems(tx: Tx, id: string): Promise<ItemRow[]> {
   return tx<ItemRow[]>`
-    select ci.product_id, p.name as product_name, p.replacement_price_cents::text as replacement_price_cents, ci.contracted_quantity,
+    select ci.product_id, p.name as product_name, p.kind as product_kind, p.replacement_price_cents::text as replacement_price_cents, ci.contracted_quantity,
            ci.franchise_quantity, ci.unit_price_cents::text as unit_price_cents, ci.excess_price_cents::text as excess_price_cents,
            ci.loss_price_cents::text as loss_price_cents, ci.damage_price_cents::text as damage_price_cents
       from public.contract_items ci join public.products p on p.id = ci.product_id
@@ -140,6 +142,7 @@ function toTerms(c: ContractRow, items: ItemRow[]): ContractTerms {
     items: items.map((i) => ({
       productId: i.product_id,
       productName: i.product_name,
+      kind: i.product_kind,
       contractedQuantity: i.contracted_quantity,
       franchiseQuantity: i.franchise_quantity,
       unitPriceCents: Number(i.unit_price_cents),
@@ -194,11 +197,11 @@ async function validateInput(tx: Tx, input: Omit<ContractInput, 'customerId'>) {
   if (input.renewal === 'AUTO' && !input.endsOn) throw new ValidationError('Renovação automática precisa de data de fim.', [{ path: 'endsOn', message: 'obrigatório' }]);
   const ids = input.items.map((i) => i.productId);
   const found = ids.length
-    ? await tx<{ id: string; name: string }[]>`select id, name from public.products where organization_id = app.current_org_id() and id = any (${ids}::uuid[])`
+    ? await tx<{ id: string; name: string; kind: 'RENTAL' | 'LINEN' }[]>`select id, name, kind from public.products where organization_id = app.current_org_id() and id = any (${ids}::uuid[])`
     : [];
   if (found.length !== new Set(ids).size) throw new NotFoundError('Produto não encontrado.');
-  const names = new Map(found.map((p) => [p.id, p.name]));
-  assertTermsConsistent({ ...input, items: input.items.map((i) => ({ ...i, productName: names.get(i.productId) ?? '' })) });
+  const byId = new Map(found.map((p) => [p.id, p]));
+  assertTermsConsistent({ ...input, items: input.items.map((i) => ({ ...i, productName: byId.get(i.productId)?.name ?? '', kind: byId.get(i.productId)?.kind })) });
 }
 
 async function writeTerms(tx: Tx, actor: UserActor, id: string, input: Omit<ContractInput, 'customerId'>) {
@@ -346,6 +349,7 @@ async function monthUsage(tx: Tx, customerId: string, month: string): Promise<Mo
   const [d] = await tx<{ n: number }[]>`
     select count(distinct op.id)::int as n
       from public.stop_operations op join public.stop_operation_items it on it.operation_id = op.id
+      join public.products p on p.id = it.product_id and p.kind = 'RENTAL'
      where op.customer_id = ${customerId} and it.delivered > 0
        and (op.occurred_at at time zone 'America/Sao_Paulo')::date between ${from}::date and ${to}::date`;
   const rows = await tx<{ product_id: string; q: number }[]>`
@@ -353,7 +357,7 @@ async function monthUsage(tx: Tx, customerId: string, month: string): Promise<Mo
      where customer_id = ${customerId} and movement_type = 'DELIVERY' and to_state = 'WITH_CUSTOMER'
        and (occurred_at at time zone 'America/Sao_Paulo')::date between ${from}::date and ${to}::date
      group by product_id`;
-  return { deliveries: d?.n ?? 0, deliveredByProduct: Object.fromEntries(rows.map((r) => [r.product_id, r.q])) };
+  return { deliveries: d?.n ?? 0, deliveredByProduct: Object.fromEntries(rows.map((r) => [r.product_id, r.q])), linenByProduct: await linenUsage(tx, customerId, from, to) };
 }
 
 export async function getContractDetail(actor: UserActor, id: string) {
@@ -372,6 +376,7 @@ export async function getContractDetail(actor: UserActor, id: string) {
       items: items.map((i) => ({
         productId: i.product_id,
         productName: i.product_name,
+        kind: i.product_kind,
         replacementPriceCents: Number(i.replacement_price_cents),
         contractedQuantity: i.contracted_quantity,
         franchiseQuantity: i.franchise_quantity,

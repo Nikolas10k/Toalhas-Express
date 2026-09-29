@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/admin/page-header';
+import { LinenReadyBanner } from '@/components/linen/linen-ready-banner';
 import { formatScheduleDate, todayLocal } from '@/components/orders/labels';
 import { OrderPicker } from '@/components/routes/order-picker';
 import { RouteMap, type MapPoint } from '@/components/routes/route-map';
@@ -144,6 +145,7 @@ export function RoutePlanner({ initialDate }: { initialDate: string | null }) {
               <CardTitle className="text-base">Pedidos para {formatScheduleDate(date)}</CardTitle>
             </CardHeader>
             <CardContent>
+              <LinenReadyBanner date={date} />
               {orders.error && <Alert variant="destructive">{describeApiError(orders.error)}</Alert>}
               {orders.isPending ? (
                 <Skeleton className="h-40 w-full" />

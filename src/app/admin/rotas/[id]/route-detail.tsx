@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Flag, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ClipboardList, Flag, Plus, Sparkles, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -13,7 +13,7 @@ import { OrderPicker } from '@/components/routes/order-picker';
 import { RouteMap, type MapPoint } from '@/components/routes/route-map';
 import { shortAddress, type DriverOption, type PlannableResponse, type VehicleOption } from '@/components/routes/types';
 import { Alert } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
@@ -171,6 +171,9 @@ export function RouteDetailView({ id }: { id: string }) {
           {r.startedAt && <p className="text-xs text-muted-foreground">Iniciada {formatDateTime(r.startedAt)}{r.completedAt && ` · finalizada ${formatDateTime(r.completedAt)}`}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link href={`/admin/rotas/${id}/romaneio`} className={buttonVariants({ variant: 'outline' })}>
+            <ClipboardList aria-hidden /> Romaneio
+          </Link>
           {actions.edit && (
             <>
               <Button variant="outline" onClick={() => setDialog('add')}>

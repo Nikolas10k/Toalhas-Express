@@ -12,6 +12,7 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | 6 | Entrega, coleta, prova, ocorrências, dano e perda | ✅ Concluída — [relatório](docs/reports/FASE-06.md) |
 | 7 | Lavanderia (`laundry_batches`) | ✅ Concluída — [relatório](docs/reports/FASE-07.md) |
 | 8 | Contratos e regras de cobrança | ✅ Concluída — [relatório](docs/reports/FASE-08.md) |
+| 8B | Lavanderia enxuta, enxoval de clientes (hotéis/spas), perfil Operador e romaneio | ✅ Concluída — [relatório](docs/reports/FASE-08B.md) |
 | 9 | Financeiro interno (billable events, receivables, charges, payments, ledger) | ⏳ Próxima |
 | 10 | Asaas (PaymentProvider, webhook, conciliação) | Pendente |
 | 11 | WhatsApp (Business Platform) e n8n | Pendente |
@@ -121,6 +122,17 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 - [x] Job diário de renovação (estende ou encerra, idempotente)
 - [x] Telas: Contratos (lista, novo, detalhe com simulação e revisões), aba Contrato do cliente, "Meu contrato" no portal
 
+## Fase 8B — checklist
+
+- [x] Lavanderia enxuta: "Lançar produção" (boas / dano / descarte) num passo; sem lotes e etapas obrigatórios; mesmo ledger por baixo
+- [x] Conferência na base opcional ("Informar diferença"), só para rotas recentes; a contagem do motorista vale
+- [x] Produto com tipo: toalha de aluguel (estoque) ou enxoval do cliente (sem estoque; trigger no banco impede movimento)
+- [x] OS de enxoval: coleta com rol na parada → pronta (falta exige explicação e vira ocorrência) → entrega gerada em lote → entregue
+- [x] Coleta e entrega do enxoval nas mesmas rotas e no mesmo app do motorista; peça fora do previsto pode ser adicionada na hora
+- [x] Cobrança por peça higienizada (rol da coleta) em qualquer tipo de contrato
+- [x] Perfil Operador (lavanderia e separação); romaneio de separação por rota (impressão)
+- [x] Telas: Lavanderia (aluguel, enxoval, histórico), aviso "gerar entregas" no planejamento, aba Enxoval do cliente, produto com tipo, contrato com preço por peça lavada
+
 ## Decisões registradas
 
 | # | Decisão | Motivo |
@@ -170,3 +182,9 @@ Fonte da verdade: [`docs/SPEC.md`](docs/SPEC.md). Cada fase termina com lint, ty
 | D43 | Mensalidade proporcional aos dias de vigência no mês (configurável), arredondamento meio-para-cima em centavos | Início/fim no meio do mês sem conta manual; inteiros evitam erro de ponto flutuante |
 | D44 | Preço de perda/dano vem do contrato por função SECURITY DEFINER, independente de quem resolve | O valor cobrado não pode variar conforme a permissão de quem clica |
 | D45 | `CUSTOM` não calcula variável automaticamente (só mensalidade, se houver) | Regras fora do padrão ficam com o financeiro, sinalizadas como manuais |
+| D46 | Lavanderia registra só a saída ("Lançar produção"); por baixo vira um lote concluído | Rotina da operação (8 lavadoras, 16h/dia) não comporta etapas por máquina; o ledger continua fechando |
+| D47 | Conferência na base é opcional; vale a contagem do motorista na coleta | Evita contar duas vezes; diferença ainda vira ocorrência quando informada |
+| D48 | Enxoval do cliente é um tipo de produto que nunca entra no ledger (garantido por trigger) | A roupa é do hotel: misturar com o estoque de aluguel falsearia saldos |
+| D49 | Cobrança do enxoval pelo rol da coleta, por peça, em qualquer tipo de contrato | Prática do mercado de hotelaria; o hotel pode ter aluguel e higienização no mesmo contrato |
+| D50 | Entrega do enxoval pronto é gerada pelo planejamento (um pedido por cliente), não pela lavanderia | Operador não precisa de permissão de pedidos; quem planeja a rota decide a data |
+| D51 | Falta de peça do cliente na saída exige explicação e abre ocorrência sem movimento de estoque | Responsabilidade perante o hotel fica registrada; resolução só administrativa |

@@ -32,9 +32,10 @@ export interface IncidentShape {
   customerId: string | null;
   /**
    * Etapa da divergência: ficaram com o cliente (COLLECTION), voltaram na rota
-   * (DELIVERY) ou não chegaram à base na conferência (RECEIVING).
+   * (DELIVERY), não chegaram à base na conferência (RECEIVING) ou são enxoval
+   * do cliente (SERVICE: sem estoque da empresa, só registro).
    */
-  stage?: 'COLLECTION' | 'DELIVERY' | 'RECEIVING' | null;
+  stage?: 'COLLECTION' | 'DELIVERY' | 'RECEIVING' | 'SERVICE' | null;
   /** Onde estão as toalhas da ocorrência: separadas para lavar (padrão) ou já marcadas como danificadas (inspeção). */
   location?: 'AWAITING_LAUNDRY' | 'DAMAGED' | null;
   /** Conferência: faltaram (MISSING) ou sobraram (EXTRA) toalhas. */
@@ -47,6 +48,7 @@ export interface IncidentShape {
  * (no sistema) com o cliente; decide-se se seguem com ele ou viram perda.
  */
 export function allowedDecisions(i: IncidentShape): Decision[] {
+  if (i.stage === 'SERVICE') return ['NO_ACTION'];
   const withStock = i.quantity > 0 && i.productId !== null;
   if (i.type === 'DAMAGED' && withStock) {
     // Dano achado na lavanderia (sem cliente): não há quem cobrar.

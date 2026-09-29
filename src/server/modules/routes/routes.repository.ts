@@ -88,8 +88,8 @@ export async function routeStops(tx: Tx, routeId: string): Promise<StopRow[]> {
 }
 
 export async function stopItems(tx: Tx, routeId: string) {
-  return tx<{ order_id: string; product_id: string; name: string; sku: string; delivery_quantity: number; collection_quantity: number }[]>`
-    select i.order_id, i.product_id, p.name, p.sku, i.delivery_quantity, i.collection_quantity
+  return tx<{ order_id: string; product_id: string; name: string; sku: string; kind: 'RENTAL' | 'LINEN'; delivery_quantity: number; collection_quantity: number }[]>`
+    select i.order_id, i.product_id, p.name, p.sku, p.kind, i.delivery_quantity, i.collection_quantity
       from public.route_stops s
       join public.order_items i on i.order_id = s.order_id
       join public.products p on p.id = i.product_id

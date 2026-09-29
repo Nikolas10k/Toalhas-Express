@@ -135,10 +135,11 @@ async function insertOrder(tx: Tx, actor: AuthenticatedActor, a: CreateArgs): Pr
   }
 
   const productIds = a.items.map((i) => i.productId);
-  const products = await tx<{ id: string }[]>`
-    select id from public.products where organization_id = app.current_org_id() and active and deleted_at is null and id = any (${productIds})
+  const products = await tx<{ id: string; kind: string }[]>`
+    select id, kind from public.products where organization_id = app.current_org_id() and active and deleted_at is null and id = any (${productIds})
   `;
   if (products.length !== productIds.length) throw new BusinessRuleError('Produto inválido ou inativo nos itens.');
+  if (a.source === 'PORTAL' && products.some((p) => p.kind !== 'RENTAL')) throw new BusinessRuleError('Produto inválido ou inativo nos itens.');
 
   const id = randomUUID();
   const [{ n }] = (await tx`select app.next_order_number(${actor.organizationId}) as n`) as unknown as [{ n: string }];
@@ -204,6 +205,32 @@ export async function createOrderByStaff(actor: UserActor, input: z.infer<typeof
   };
   if (idempotencyKey) return (await executeIdempotent(actor, { scope: 'order.create', key: idempotencyKey, request: input }, run)).result;
   return withActorTransaction(toDbContext(actor), run);
+}
+
+/**
+ * Entrega de enxoval pronto (OS de higienização): pedido confirmado na mesma
+ * transação. Entrega + coleta na mesma parada (hotel devolve o sujo ao receber o limpo).
+ */
+export async function createLinenDeliveryOrder(
+  tx: Tx,
+  actor: UserActor,
+  a: { customerId: string; scheduledDate: string; items: { productId: string; quantity: number }[]; notes: string | null },
+) {
+  authorize(actor, 'order.create');
+  authorize(actor, 'order.update');
+  const created = await insertOrder(tx, actor, {
+    customerId: a.customerId,
+    type: 'DELIVERY_AND_COLLECTION',
+    scheduledDate: a.scheduledDate,
+    windowStart: null,
+    windowEnd: null,
+    items: a.items.map((i) => ({ productId: i.productId, deliveryQuantity: i.quantity, collectionQuantity: 0 })),
+    notes: a.notes,
+    status: 'NEW',
+    source: 'ADMIN',
+  });
+  await applyTransition(tx, actor, created.id, { to: 'CONFIRMED', overrideStock: false, windowStart: null, windowEnd: null });
+  return created;
 }
 
 async function ownCustomerId(tx: Tx): Promise<string> {
@@ -273,8 +300,13 @@ async function insertDraftAsSystemChecked(tx: Tx, actor: AuthenticatedActor, inp
 // Transições (com reserva/liberação de estoque na MESMA transação)
 // -----------------------------------------------------------------------------
 
+/** Só toalhas de aluguel reservam estoque; enxoval do cliente não é estoque da empresa. */
+async function rentalItems(tx: Tx, orderId: string) {
+  return (await orderItems(tx, orderId)).filter((i) => i.kind === 'RENTAL');
+}
+
 async function reserve(tx: Tx, actor: AuthenticatedActor, order: OrderRow, historyTag: string, allowNegative: boolean) {
-  const items = await orderItems(tx, order.id);
+  const items = await rentalItems(tx, order.id);
   const reserved = await reservedByOrder(tx, order.id);
   const movements = items
     .map((i) => ({ i, missing: i.delivery_quantity - (reserved.get(i.product_id) ?? 0) }))
@@ -524,6 +556,7 @@ export async function getOrderDetail(actor: UserActor, orderId: string) {
         productId: i.product_id,
         sku: i.sku,
         name: i.name,
+        kind: i.kind,
         deliveryQuantity: i.delivery_quantity,
         collectionQuantity: i.collection_quantity,
         reservedQuantity: reserved.get(i.product_id) ?? 0,

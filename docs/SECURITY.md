@@ -18,7 +18,7 @@ Prioridade em conflitos (SPEC §1): integridade financeira > segurança > integr
 
 ## Autorização
 
-- Perfis ADMIN, MANAGER, DRIVER, CUSTOMER, INTEGRATION são **conjuntos de permissões** (`public.role_permissions`). O código só verifica permissões (`authorize(actor, 'finance.refund')`), nunca nomes de role.
+- Perfis ADMIN, MANAGER, OPERATOR (lavanderia/separação: sem clientes, contratos, estoque geral ou financeiro), DRIVER, CUSTOMER, INTEGRATION são **conjuntos de permissões** (`public.role_permissions`). O código só verifica permissões (`authorize(actor, 'finance.refund')`), nunca nomes de role.
 - Três barreiras: guarda de página (UX) → `authorize()` no service → RLS no banco.
 - Organização ativa vem de cookie, mas só é aceita se houver vínculo ativo; senão cai na primeira org do usuário.
 - IDOR/BOLA: consultas por ID rodam com RLS da org ativa; registro de outro tenant simplesmente não existe (`404`).

@@ -31,6 +31,8 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         incidents: p.has('incident.read'),
         contracts: p.has('contract.read'),
         contractManage: p.has('contract.manage'),
+        laundry: p.has('laundry.read'),
+        laundryManage: p.has('laundry.manage'),
       }}
     />
   );

@@ -56,4 +56,6 @@ export interface Permissions {
   incidents: boolean;
   contracts: boolean;
   contractManage: boolean;
+  laundry: boolean;
+  laundryManage: boolean;
 }

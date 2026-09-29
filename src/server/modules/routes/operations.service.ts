@@ -11,6 +11,7 @@ import { DAMAGE_CLASSES, STOP_PROBLEM_TYPES, type IncidentType } from '@/server/
 import { createIncidentRow, openIncidentAlert } from '@/server/modules/incidents/incidents.service';
 import type { MovementInput } from '@/server/modules/inventory/inventory.domain';
 import { recordMovements } from '@/server/modules/inventory/inventory.service';
+import { deliverServiceOrdersAtStop, openServiceOrderAtStop } from '@/server/modules/linen/linen.service';
 import { formatOrderNumber } from '@/server/modules/orders/orders.domain';
 import { applyTransition } from '@/server/modules/orders/orders.service';
 import { readSettings } from '@/server/modules/organizations/organization-settings';
@@ -64,30 +65,41 @@ async function balance(tx: Tx, customerId: string, productId: string): Promise<n
 interface FormLine {
   productId: string;
   name: string;
+  /** RENTAL = toalha da empresa; LINEN = enxoval do cliente (OS de higienização, sem estoque). */
+  kind: 'RENTAL' | 'LINEN';
   plannedDelivery: number;
   loaded: number;
   expectedCollection: number;
   customerBalance: number;
 }
 
-/** Linhas do atendimento: produtos do pedido + produtos que o cliente tem em posse. */
+/** Linhas do atendimento: produtos do pedido + toalhas que o cliente tem + enxoval que ele costuma enviar. */
 async function buildLines(tx: Tx, orderId: string, orderType: string, customerId: string): Promise<FormLine[]> {
-  const items = await tx<{ product_id: string; name: string; delivery_quantity: number; collection_quantity: number }[]>`
-    select i.product_id, p.name, i.delivery_quantity, i.collection_quantity
+  const items = await tx<{ product_id: string; name: string; kind: 'RENTAL' | 'LINEN'; delivery_quantity: number; collection_quantity: number }[]>`
+    select i.product_id, p.name, p.kind, i.delivery_quantity, i.collection_quantity
       from public.order_items i join public.products p on p.id = i.product_id where i.order_id = ${orderId} order by p.name`;
   const held = await tx<{ product_id: string; name: string }[]>`
     select p.id as product_id, p.name from public.products p
-     where p.organization_id = app.current_org_id() and app.customer_product_balance(${customerId}, p.id) > 0 order by p.name`;
+     where p.organization_id = app.current_org_id() and p.kind = 'RENTAL' and app.customer_product_balance(${customerId}, p.id) > 0 order by p.name`;
   const loaded = await dispatchedByProduct(tx, orderId);
   const lines: FormLine[] = [];
   const collects = orderType !== 'DELIVERY';
+  const rental = items.filter((i) => i.kind === 'RENTAL');
+  // Pedido só de enxoval: não se espera recolher toalhas de aluguel nesta parada.
+  const linenOnly = rental.length === 0 && items.length > 0;
   // Pedido com quantidade de coleta definida: espera-se exatamente isso. Sem quantidade: recolher tudo o que o cliente tem.
-  const explicit = items.some((i) => i.collection_quantity > 0);
+  const explicit = rental.some((i) => i.collection_quantity > 0);
   for (const i of items) {
+    if (i.kind === 'LINEN') {
+      // Enxoval não sai do estoque: o que foi programado vai no veículo; a coleta é o rol contado na hora.
+      lines.push({ productId: i.product_id, name: i.name, kind: 'LINEN', plannedDelivery: i.delivery_quantity, loaded: i.delivery_quantity, expectedCollection: collects ? i.collection_quantity : 0, customerBalance: 0 });
+      continue;
+    }
     const bal = await balance(tx, customerId, i.product_id);
     lines.push({
       productId: i.product_id,
       name: i.name,
+      kind: 'RENTAL',
       plannedDelivery: i.delivery_quantity,
       loaded: loaded.get(i.product_id) ?? 0,
       // Coleta esperada: o que o pedido pede; sem quantidade no pedido, o saldo do cliente.
@@ -98,9 +110,27 @@ async function buildLines(tx: Tx, orderId: string, orderType: string, customerId
   for (const h of held) {
     if (lines.some((l) => l.productId === h.product_id)) continue;
     const bal = await balance(tx, customerId, h.product_id);
-    lines.push({ productId: h.product_id, name: h.name, plannedDelivery: 0, loaded: 0, expectedCollection: collects && !explicit ? bal : 0, customerBalance: bal });
+    lines.push({ productId: h.product_id, name: h.name, kind: 'RENTAL', plannedDelivery: 0, loaded: 0, expectedCollection: collects && !explicit && !linenOnly ? bal : 0, customerBalance: bal });
+  }
+  if (collects) {
+    // Enxoval que este cliente já enviou antes: o motorista só preenche o rol.
+    const usual = await tx<{ product_id: string; name: string }[]>`
+      select distinct p.id as product_id, p.name
+        from public.linen_service_orders s join public.linen_service_order_items i on i.service_order_id = s.id
+        join public.products p on p.id = i.product_id
+       where s.customer_id = ${customerId} and p.active and p.kind = 'LINEN' order by p.name`;
+    for (const u of usual) {
+      if (lines.some((l) => l.productId === u.product_id)) continue;
+      lines.push({ productId: u.product_id, name: u.name, kind: 'LINEN', plannedDelivery: 0, loaded: 0, expectedCollection: 0, customerBalance: 0 });
+    }
   }
   return lines;
+}
+
+async function linenCatalog(tx: Tx) {
+  const rows = await tx<{ id: string; name: string }[]>`
+    select id, name from public.products where organization_id = app.current_org_id() and kind = 'LINEN' and active and deleted_at is null order by name`;
+  return rows.map((r) => ({ productId: r.id, name: r.name }));
 }
 
 export async function getStopServiceForm(actor: UserActor, stopId: string) {
@@ -116,6 +146,8 @@ export async function getStopServiceForm(actor: UserActor, stopId: string) {
       route: { id: route.id, status: route.status },
       order: { id: stop.order_id, number: formatOrderNumber(o!.number), type: o!.order_type, status: o!.status, customerName: o!.customer_name, notes: o!.notes },
       lines: await buildLines(tx, stop.order_id, o!.order_type, stop.customer_id),
+      // Enxoval que o motorista pode acrescentar na coleta (o hotel manda peças fora do previsto).
+      linenCatalog: o!.order_type === 'DELIVERY' ? [] : await linenCatalog(tx),
       requireProofPhoto: settings.operations.requireProofPhoto,
       canOperate: route.status === 'IN_PROGRESS' && ['ON_THE_WAY', 'ARRIVED', 'IN_SERVICE'].includes(stop.status) && o!.status === 'IN_TRANSIT',
     };
@@ -175,6 +207,14 @@ export async function completeStop(actor: UserActor, stopId: string, input: z.in
     if (order?.status !== 'IN_TRANSIT') throw new BusinessRuleError('O pedido desta parada não está em trânsito.');
 
     const lines = await buildLines(tx, stop.order_id, order.order_type, stop.customer_id);
+    if (order.order_type !== 'DELIVERY') {
+      // Peça de enxoval fora do previsto: entra no rol como coleta.
+      for (const c of await linenCatalog(tx)) {
+        if (!lines.some((l) => l.productId === c.productId) && input.items.some((i) => i.productId === c.productId)) {
+          lines.push({ productId: c.productId, name: c.name, kind: 'LINEN', plannedDelivery: 0, loaded: 0, expectedCollection: 0, customerBalance: 0 });
+        }
+      }
+    }
     const byId = new Map(lines.map((l) => [l.productId, l]));
     const seen = new Set<string>();
     for (const it of input.items) {
@@ -183,6 +223,10 @@ export async function completeStop(actor: UserActor, stopId: string, input: z.in
       if (seen.has(it.productId)) throw new ValidationError('Produto repetido.');
       seen.add(it.productId);
       if (it.delivered > l.loaded) throw new BusinessRuleError(`${l.name}: só ${l.loaded} saíram no veículo para este pedido.`);
+      if (l.kind === 'LINEN') {
+        if (it.damaged > it.collected) throw new BusinessRuleError(`${l.name}: peças com dano não podem passar das coletadas.`);
+        continue;
+      }
       if (it.collected > l.customerBalance) {
         throw new BusinessRuleError(`${l.name}: o cliente tem ${l.customerBalance} no sistema. Colete no máximo isso e registre uma ocorrência para o excedente.`);
       }
@@ -218,9 +262,10 @@ export async function completeStop(actor: UserActor, stopId: string, input: z.in
       const l = i.line;
       await tx`
         insert into public.stop_operation_items (organization_id, operation_id, product_id, planned_delivery, loaded, delivered,
-                                                 expected_collection, customer_balance_before, collected, damaged)
+                                                 expected_collection, customer_balance_before, collected, damaged, is_linen)
         values (${actor.organizationId}, ${operationId}, ${l.productId}, ${l.plannedDelivery}, ${l.loaded}, ${i.delivered},
-                ${l.expectedCollection}, ${l.customerBalance}, ${i.collected}, ${i.damaged})`;
+                ${l.expectedCollection}, ${l.customerBalance}, ${i.collected}, ${i.damaged}, ${l.kind === 'LINEN'})`;
+      if (l.kind === 'LINEN') continue;
       const key = (k: string) => `stopop:${stopId}:${l.productId}:${k}`;
       // Coleta antes da entrega: o saldo coletável é o que o cliente tinha ao chegarmos.
       if (i.collected > 0) movements.push({ ...base, productId: l.productId, type: 'COLLECTION', quantity: i.collected, from: 'WITH_CUSTOMER', to: 'AWAITING_LAUNDRY', idempotencyKey: key('collect') });
@@ -239,6 +284,16 @@ export async function completeStop(actor: UserActor, stopId: string, input: z.in
     };
     for (const i of items) {
       const l = i.line;
+      if (l.kind === 'LINEN') {
+        // Enxoval: o rol contado é a verdade da coleta; só a entrega a menos vira ocorrência.
+        if (i.delivered < l.plannedDelivery) {
+          const diff = l.plannedDelivery - i.delivered;
+          await open('QUANTITY_DIVERGENCE', l.productId, diff, `Entrega de enxoval (${l.name}): previsto ${l.plannedDelivery}, entregue ${i.delivered}. ${diff} voltam com o motorista.`, {
+            stage: 'DELIVERY', expected: l.plannedDelivery, actual: i.delivered,
+          });
+        }
+        continue;
+      }
       if (i.collected !== l.expectedCollection && (l.expectedCollection > 0 || i.collected > 0)) {
         const missing = l.expectedCollection - i.collected;
         await open(
@@ -262,6 +317,17 @@ export async function completeStop(actor: UserActor, stopId: string, input: z.in
       }
     }
 
+    const linen = items.filter((i) => i.line.kind === 'LINEN');
+    const serviceOrder = await openServiceOrderAtStop(tx, actor, {
+      customerId: stop.customer_id,
+      operationId,
+      items: linen.map((i) => ({ productId: i.line.productId, collected: i.collected, damaged: i.damaged })),
+      notes: input.notes,
+    });
+    if (linen.some((i) => i.line.plannedDelivery > 0)) {
+      await deliverServiceOrdersAtStop(tx, actor, { orderId: stop.order_id, operationId, delivered: new Map(linen.map((i) => [i.line.productId, i.delivered])) });
+    }
+
     await linkAttachments(tx, actor, input.attachmentIds, 'stop_operation', operationId);
     await tx`update public.route_stops set status = 'COMPLETED', completed_at = now() where id = ${stopId}`;
     await insertRouteEvent(tx, actor, { routeId: route.id, stopId, type: 'STOP_STATUS', from: 'IN_SERVICE', to: 'COMPLETED', geo: input.geo, metadata: { operation_id: operationId, incidents: incidents.length } });
@@ -276,7 +342,7 @@ export async function completeStop(actor: UserActor, stopId: string, input: z.in
       payload: { order_id: stop.order_id, number: order.number, customer_id: stop.customer_id, route_id: route.id, stop_id: stopId, operation_id: operationId, ...totals, recipient_name: input.recipientName, incidents },
       idempotencyKey: `DeliveryCompleted:${stopId}`,
     });
-    return { operationId, replayed: false, incidents };
+    return { operationId, replayed: false, incidents, serviceOrder: serviceOrder?.number ?? null };
   });
   for (const a of alerts) await openIncidentAlert(actor.organizationId, a);
   return result;

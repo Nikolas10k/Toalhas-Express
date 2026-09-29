@@ -117,6 +117,8 @@ export const productSchema = z.strictObject({
   replacementPriceCents: moneyCents,
   minStock: z.number().int().min(0).max(1_000_000),
   active: z.boolean().default(true),
+  /** RENTAL = toalha de aluguel (estoque); LINEN = enxoval do cliente (higienização, sem estoque). */
+  kind: z.enum(['RENTAL', 'LINEN']).default('RENTAL'),
 });
 export const productUpdateSchema = productSchema.partial().strict();
 /** Cadastro pode já dar entrada no estoque (vira um movimento STOCK_ENTRY na mesma transação). */
@@ -137,13 +139,20 @@ export async function listProductsForActor(actor: AuthenticatedActor, includeIna
 export async function listPortalCatalog(actor: UserActor) {
   authorize(actor, 'portal.access');
   return withActorTransaction(toDbContext(actor), async (tx) =>
-    (await listProducts(tx, { includeInactive: false })).map((p) => ({ id: p.id, sku: p.sku, name: p.name })),
+    (await listProducts(tx, { includeInactive: false, kind: 'RENTAL' })).map((p) => ({ id: p.id, sku: p.sku, name: p.name })),
   );
 }
 
-export async function createProduct(actor: UserActor, input: z.infer<typeof productSchema> & { initialQuantity?: number }) {
+export async function createProduct(
+  actor: UserActor,
+  input: Omit<z.infer<typeof productSchema>, 'kind'> & { kind?: z.infer<typeof productSchema>['kind']; initialQuantity?: number },
+) {
   authorize(actor, 'product.manage');
-  const { initialQuantity = 0, ...product } = input;
+  const { initialQuantity = 0, kind = 'RENTAL', ...rest } = input;
+  const product = { ...rest, kind };
+  if (product.kind === 'LINEN' && (initialQuantity > 0 || product.minStock > 0)) {
+    throw new BusinessRuleError('Enxoval do cliente não tem estoque: deixe estoque inicial e mínimo em zero.');
+  }
   if (initialQuantity > 0) authorize(actor, MOVEMENT_PERMISSION.STOCK_ENTRY);
   return withActorTransaction(toDbContext(actor), async (tx) => {
     const id = randomUUID();
@@ -195,10 +204,15 @@ export async function updateProductForActor(actor: UserActor, id: string, patch:
       }
     }
     if (Object.keys(after).length === 0) return { changed: false };
+    const kind = (after.kind as string | undefined) ?? current.kind;
+    if (kind === 'LINEN' && ((after.minStock as number | undefined) ?? current.minStock) > 0) {
+      throw new BusinessRuleError('Enxoval do cliente não tem estoque mínimo.');
+    }
     try {
       await tx.savepoint((sp) => updateProduct(sp as unknown as Tx, id, after as ProductWrite));
     } catch (err) {
       if (isUniqueViolation(err)) throw new ConflictError('Já existe um produto com este SKU.');
+      if (err instanceof Error && /mudar de tipo/.test(err.message)) throw new BusinessRuleError('Produto com histórico não pode mudar de tipo.');
       throw err;
     }
     await recordAudit(tx, actor, actor.organizationId, { action: 'product.updated', entityType: 'product', entityId: id, before, after });
@@ -356,7 +370,7 @@ export async function reverseMovement(actor: UserActor, movementId: string, why:
 export async function getStockOverview(actor: AuthenticatedActor) {
   authorize(actor, 'inventory.read');
   return withActorTransaction(toDbContext(actor), async (tx) => {
-    const products = await listProducts(tx, { includeInactive: true });
+    const products = await listProducts(tx, { includeInactive: true, kind: 'RENTAL' });
     const balances = await balancesForOrg(tx);
     const alerts = await tx<{ id: string; alert_type: string; severity: string; title: string; details: unknown; created_at: Date }[]>`
       select id, alert_type, severity, title, details, created_at from public.system_alerts

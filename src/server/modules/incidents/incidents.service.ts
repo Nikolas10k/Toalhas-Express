@@ -174,6 +174,7 @@ interface IncidentRow {
   operation_id: string | null;
   product_id: string | null;
   product_name: string | null;
+  product_kind: string | null;
   replacement_price_cents: string | null;
   quantity: number;
   description: string;
@@ -192,7 +193,7 @@ interface IncidentRow {
 
 const INCIDENT_SELECT = `
   i.id, i.number::text as number, i.incident_type, i.status, i.source, i.customer_id, coalesce(c.trade_name, c.legal_name) as customer_name,
-  i.order_id, o.number::text as order_number, i.route_id, i.route_stop_id, i.operation_id, i.product_id, p.name as product_name,
+  i.order_id, o.number::text as order_number, i.route_id, i.route_stop_id, i.operation_id, i.product_id, p.name as product_name, p.kind as product_kind,
   p.replacement_price_cents::text as replacement_price_cents, i.quantity, i.description, i.details, i.damage_class, i.decision,
   i.charge_customer, i.charge_amount_cents::text as charge_amount_cents, i.assigned_to, a.full_name as assigned_name,
   r.full_name as reporter_name, i.resolution, i.resolved_at, i.created_at
@@ -271,7 +272,8 @@ function shapeOf(i: IncidentRow) {
     quantity: i.quantity,
     productId: i.product_id,
     customerId: i.customer_id,
-    stage: (i.details.stage as 'COLLECTION' | 'DELIVERY' | 'RECEIVING' | undefined) ?? null,
+    // Enxoval do cliente não é estoque da empresa: a ocorrência só registra e resolve, nunca movimenta.
+    stage: i.product_kind === 'LINEN' ? ('SERVICE' as const) : ((i.details.stage as 'COLLECTION' | 'DELIVERY' | 'RECEIVING' | undefined) ?? null),
     location: (i.details.location as 'AWAITING_LAUNDRY' | 'DAMAGED' | undefined) ?? null,
     direction: (i.details.direction as 'MISSING' | 'EXTRA' | undefined) ?? null,
   };

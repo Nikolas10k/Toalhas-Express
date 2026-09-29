@@ -100,7 +100,8 @@ export function ContractForm({
         damage: i.damagePriceCents === null ? '' : centsToInput(i.damagePriceCents),
       })) ?? [],
   );
-  const products = useQuery({ queryKey: ['products', 'active'], queryFn: ({ signal }) => apiFetch<{ id: string; name: string }[]>('/api/admin/products', { signal }) });
+  const products = useQuery({ queryKey: ['products', 'active'], queryFn: ({ signal }) => apiFetch<{ id: string; name: string; kind: 'RENTAL' | 'LINEN' }[]>('/api/admin/products', { signal }) });
+  const isLinen = (productId: string) => products.data?.find((p) => p.id === productId)?.kind === 'LINEN';
   const showFee = billingType === 'MONTHLY_FIXED' || billingType === 'HYBRID' || billingType === 'CUSTOM';
   const showDelivery = billingType === 'PER_DELIVERY';
   const showUnit = billingType === 'PER_QUANTITY';
@@ -136,7 +137,19 @@ export function ContractForm({
         notes: notes || null,
         items: items
           .filter((i) => i.productId)
-          .map((i) => ({
+          .map((i) =>
+            isLinen(i.productId)
+              ? {
+                  // Enxoval do cliente: só o preço por peça higienizada.
+                  productId: i.productId,
+                  contractedQuantity: 0,
+                  franchiseQuantity: 0,
+                  unitPriceCents: money(i.unit, 'Preço por peça higienizada')!,
+                  excessPriceCents: 0,
+                  lossPriceCents: null,
+                  damagePriceCents: null,
+                }
+              : {
             productId: i.productId,
             contractedQuantity: intOf(i.contracted),
             franchiseQuantity: showFranchise ? intOf(i.franchise) : 0,
@@ -144,7 +157,8 @@ export function ContractForm({
             excessPriceCents: showFranchise ? money(i.excess, 'Preço do excedente')! : 0,
             lossPriceCents: money(i.loss, 'Preço de perda', true),
             damagePriceCents: money(i.damage, 'Preço de dano', true),
-          })),
+                },
+          ),
       });
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : 'Dados inválidos.');
@@ -217,14 +231,32 @@ export function ContractForm({
 
       <fieldset className="space-y-2">
         <legend className="mb-1 text-sm font-medium">Produtos do contrato</legend>
-        <p className="text-xs text-muted-foreground">Preço de perda/dano em branco = usa o preço de reposição do produto.</p>
-        {items.map((i) => (
+        <p className="text-xs text-muted-foreground">
+          Preço de perda/dano em branco = usa o preço de reposição do produto. Enxoval do cliente (hotel/spa) é cobrado por peça higienizada, em qualquer tipo de contrato.
+        </p>
+        {items.map((i) => isLinen(i.productId) ? (
+          <div key={i.key} className="grid gap-2 rounded-md border p-2 sm:grid-cols-4">
+            <Select aria-label="Produto" className="sm:col-span-2" value={i.productId} onChange={(e) => upd(i.key, { productId: e.target.value })}>
+              {products.data?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.kind === 'LINEN' ? ' (enxoval)' : ''}
+                </option>
+              ))}
+            </Select>
+            <Input aria-label="Preço por peça higienizada" placeholder="R$ por peça lavada" inputMode="decimal" value={i.unit} onChange={(e) => upd(i.key, { unit: e.target.value })} />
+            <Button type="button" variant="ghost" size="icon" aria-label="Remover produto" onClick={() => setItems((l) => l.filter((x) => x.key !== i.key))}>
+              <Trash2 aria-hidden />
+            </Button>
+          </div>
+        ) : (
           <div key={i.key} className="grid gap-2 rounded-md border p-2 sm:grid-cols-4">
             <Select aria-label="Produto" className="sm:col-span-2" value={i.productId} onChange={(e) => upd(i.key, { productId: e.target.value })}>
               <option value="">Produto…</option>
               {products.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                  {p.kind === 'LINEN' ? ' (enxoval)' : ''}
                 </option>
               ))}
             </Select>

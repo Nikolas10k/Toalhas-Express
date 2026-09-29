@@ -130,7 +130,8 @@ export async function startRoute(actor: UserActor, routeId: string, geo: GeoPoin
     let loaded = 0;
     for (const s of stops) {
       const items = await tx<{ product_id: string; delivery_quantity: number }[]>`
-        select product_id, delivery_quantity from public.order_items where order_id = ${s.order_id} and delivery_quantity > 0`;
+        select i.product_id, i.delivery_quantity from public.order_items i join public.products p on p.id = i.product_id
+         where i.order_id = ${s.order_id} and i.delivery_quantity > 0 and p.kind = 'RENTAL'`;
       const reserved = await reservedByOrder(tx, s.order_id);
       const movements = items.flatMap((i) => {
         const fromReserved = Math.min(i.delivery_quantity, reserved.get(i.product_id) ?? 0);

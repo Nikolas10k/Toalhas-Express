@@ -98,7 +98,7 @@ function stopDto(s: StopRow, items: Awaited<ReturnType<typeof stopItems>>) {
     totalCollection: s.total_collection,
     items: items
       .filter((i) => i.order_id === s.order_id)
-      .map((i) => ({ productId: i.product_id, name: i.name, sku: i.sku, deliveryQuantity: i.delivery_quantity, collectionQuantity: i.collection_quantity })),
+      .map((i) => ({ productId: i.product_id, name: i.name, sku: i.sku, kind: i.kind, deliveryQuantity: i.delivery_quantity, collectionQuantity: i.collection_quantity })),
     statusReason: s.status_reason,
     arrivedAt: s.arrived_at?.toISOString() ?? null,
     completedAt: s.completed_at?.toISOString() ?? null,

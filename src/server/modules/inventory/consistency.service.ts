@@ -42,7 +42,7 @@ export async function checkInventoryConsistency(orgId: string) {
         from public.products p
         left join public.stock_balances b
           on b.product_id = p.id and b.state = 'AVAILABLE' and b.customer_key = '00000000-0000-0000-0000-000000000000'
-       where p.organization_id = ${orgId} and p.active and p.deleted_at is null and p.min_stock > 0
+       where p.organization_id = ${orgId} and p.active and p.deleted_at is null and p.min_stock > 0 and p.kind = 'RENTAL'
          and coalesce(b.quantity, 0) < p.min_stock
     `;
 

@@ -13,8 +13,12 @@ export interface Product {
   replacementPriceCents: Cents;
   minStock: number;
   active: boolean;
+  kind: ProductKind;
   createdAt: Date;
 }
+
+/** RENTAL = toalha da empresa (estoque/ledger); LINEN = enxoval do cliente (só ordem de serviço). */
+export type ProductKind = 'RENTAL' | 'LINEN';
 
 interface ProductRow {
   id: string;
@@ -26,6 +30,7 @@ interface ProductRow {
   replacement_price_cents: string;
   min_stock: number;
   active: boolean;
+  kind: ProductKind;
   created_at: Date;
 }
 
@@ -40,15 +45,17 @@ const mapProduct = (r: ProductRow): Product => ({
   replacementPriceCents: cents(r.replacement_price_cents),
   minStock: r.min_stock,
   active: r.active,
+  kind: r.kind,
   createdAt: r.created_at,
 });
 
-export async function listProducts(tx: Tx, opts: { includeInactive?: boolean } = {}): Promise<Product[]> {
+export async function listProducts(tx: Tx, opts: { includeInactive?: boolean; kind?: ProductKind } = {}): Promise<Product[]> {
   const rows = await tx<ProductRow[]>`
-    select id, sku, name, size, category, cost_cents, replacement_price_cents, min_stock, active, created_at
+    select id, sku, name, size, category, cost_cents, replacement_price_cents, min_stock, active, kind, created_at
       from public.products
      where organization_id = app.current_org_id() and deleted_at is null
        ${opts.includeInactive ? tx`` : tx`and active`}
+       ${opts.kind ? tx`and kind = ${opts.kind}` : tx``}
      order by name
   `;
   return rows.map(mapProduct);
@@ -56,7 +63,7 @@ export async function listProducts(tx: Tx, opts: { includeInactive?: boolean } =
 
 export async function findProduct(tx: Tx, id: string, forUpdate = false): Promise<Product | null> {
   const rows = await tx.unsafe<ProductRow[]>(
-    `select id, sku, name, size, category, cost_cents, replacement_price_cents, min_stock, active, created_at
+    `select id, sku, name, size, category, cost_cents, replacement_price_cents, min_stock, active, kind, created_at
        from public.products where id = $1 and organization_id = app.current_org_id() and deleted_at is null
        ${forUpdate ? 'for update' : ''}`,
     [id],
@@ -73,6 +80,7 @@ export interface ProductWrite {
   replacementPriceCents?: number;
   minStock?: number;
   active?: boolean;
+  kind?: ProductKind;
 }
 
 const PRODUCT_COLUMNS: Record<keyof ProductWrite, string> = {
@@ -84,6 +92,7 @@ const PRODUCT_COLUMNS: Record<keyof ProductWrite, string> = {
   replacementPriceCents: 'replacement_price_cents',
   minStock: 'min_stock',
   active: 'active',
+  kind: 'kind',
 };
 
 function productCols(p: ProductWrite) {

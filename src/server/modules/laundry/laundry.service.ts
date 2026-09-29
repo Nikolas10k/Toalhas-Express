@@ -32,7 +32,8 @@ export async function getLaundryOverview(actor: UserActor) {
     const queue = await tx<{ product_id: string; sku: string; name: string; awaiting: string; in_laundry: string; in_inspection: string }[]>`
       select * from app.laundry_queue()`;
     const pending = await tx<{ route_id: string; route_date: string; driver_name: string; product_id: string; product_name: string; expected: string }[]>`
-      select route_id, route_date::text as route_date, driver_name, product_id, product_name, expected from app.pending_laundry_receipts()`;
+      select route_id, route_date::text as route_date, driver_name, product_id, product_name, expected from app.pending_laundry_receipts()
+       where route_date >= (now() at time zone 'America/Sao_Paulo')::date - 3`;
     const receipts = new Map<string, { routeId: string; date: string; driverName: string; items: { productId: string; name: string; expected: number }[] }>();
     for (const p of pending) {
       const r = receipts.get(p.route_id) ?? { routeId: p.route_id, date: p.route_date, driverName: p.driver_name, items: [] };
@@ -122,36 +123,41 @@ export const createBatchSchema = z.strictObject({
 });
 
 /** Monta o lote tirando as toalhas da fila (aguardando lavagem → em lavagem). */
-export async function createBatch(actor: UserActor, input: z.infer<typeof createBatchSchema>, idempotencyKey?: string) {
-  authorize(actor, 'laundry.manage');
+async function createBatchIn(tx: Tx, actor: UserActor, input: z.infer<typeof createBatchSchema>) {
   const ids = input.items.map((i) => i.productId);
   if (new Set(ids).size !== ids.length) throw new ValidationError('Produto repetido no lote.');
+  const [{ n }] = (await tx`select app.next_laundry_number(${actor.organizationId}) as n`) as unknown as [{ n: string }];
+  const [b] = await tx<{ id: string }[]>`
+    insert into public.laundry_batches (organization_id, number, provider, notes, created_by)
+    values (${actor.organizationId}, ${n}, ${input.provider}, ${input.notes}, ${actor.userId}) returning id`;
+  const batchId = b!.id;
+  for (const it of input.items) {
+    await tx`insert into public.laundry_batch_items (organization_id, batch_id, product_id, quantity)
+             values (${actor.organizationId}, ${batchId}, ${it.productId}, ${it.quantity})`;
+  }
+  try {
+    await recordMovements(
+      tx,
+      actor,
+      input.items.map((it) => ({
+        productId: it.productId, type: 'LAUNDRY_ENTRY' as const, quantity: it.quantity, from: 'AWAITING_LAUNDRY' as const, to: 'IN_LAUNDRY' as const,
+        laundryBatchId: batchId, reason: `Lote ${formatBatchNumber(n)}`, idempotencyKey: `laundry:${batchId}:entry:${it.productId}`,
+      })),
+    );
+  } catch (err) {
+    if (err instanceof InventoryError) throw new InventoryError('Quantidade maior que o que está aguardando lavagem deste produto.', err.details);
+    throw err;
+  }
+  await event(tx, actor, batchId, null, 'WAITING');
+  await recordAudit(tx, actor, actor.organizationId, { action: 'laundry.batch_created', entityType: 'laundry_batch', entityId: batchId, after: { ...input, number: n } });
+  return { id: batchId, number: formatBatchNumber(n), rawNumber: n };
+}
+
+export async function createBatch(actor: UserActor, input: z.infer<typeof createBatchSchema>, idempotencyKey?: string) {
+  authorize(actor, 'laundry.manage');
   const run = async (tx: Tx) => {
-    const [{ n }] = (await tx`select app.next_laundry_number(${actor.organizationId}) as n`) as unknown as [{ n: string }];
-    const [b] = await tx<{ id: string }[]>`
-      insert into public.laundry_batches (organization_id, number, provider, notes, created_by)
-      values (${actor.organizationId}, ${n}, ${input.provider}, ${input.notes}, ${actor.userId}) returning id`;
-    const batchId = b!.id;
-    for (const it of input.items) {
-      await tx`insert into public.laundry_batch_items (organization_id, batch_id, product_id, quantity)
-               values (${actor.organizationId}, ${batchId}, ${it.productId}, ${it.quantity})`;
-    }
-    try {
-      await recordMovements(
-        tx,
-        actor,
-        input.items.map((it) => ({
-          productId: it.productId, type: 'LAUNDRY_ENTRY' as const, quantity: it.quantity, from: 'AWAITING_LAUNDRY' as const, to: 'IN_LAUNDRY' as const,
-          laundryBatchId: batchId, reason: `Lote ${formatBatchNumber(n)}`, idempotencyKey: `laundry:${batchId}:entry:${it.productId}`,
-        })),
-      );
-    } catch (err) {
-      if (err instanceof InventoryError) throw new InventoryError('Quantidade maior que a fila de lavagem deste produto.', err.details);
-      throw err;
-    }
-    await event(tx, actor, batchId, null, 'WAITING');
-    await recordAudit(tx, actor, actor.organizationId, { action: 'laundry.batch_created', entityType: 'laundry_batch', entityId: batchId, after: { ...input, number: n } });
-    return { id: batchId, number: formatBatchNumber(n) };
+    const { id, number } = await createBatchIn(tx, actor, input);
+    return { id, number };
   };
   if (idempotencyKey) return (await executeIdempotent(actor, { scope: 'laundry.batch_create', key: idempotencyKey, request: input }, run)).result;
   return withActorTransaction(toDbContext(actor), run);
@@ -242,69 +248,117 @@ export const inspectionSchema = z.strictObject({
   damageClass: z.enum(DAMAGE_CLASSES).nullable().optional(),
 });
 
+type InspectionInput = z.infer<typeof inspectionSchema>;
+
+/** Dá destino a cada toalha em inspeção (disponível / dano → ocorrência / descarte) e conclui o lote. */
+async function applyInspection(
+  tx: Tx,
+  actor: UserActor,
+  b: { id: string; number: string; status: LaundryStatus },
+  items: { product_id: string; name: string; quantity: number }[],
+  input: InspectionInput,
+  alerts: Alert[],
+) {
+  const id = b.id;
+  const byProduct = new Map(input.items.map((i) => [i.productId, i]));
+  if (byProduct.size !== input.items.length) throw new ValidationError('Produto repetido.');
+  if (items.length !== byProduct.size || items.some((i) => !byProduct.has(i.product_id))) {
+    throw new ValidationError('Informe a inspeção de todos os produtos do lote.');
+  }
+  const totalDamaged = input.items.reduce((a, i) => a + i.damaged, 0);
+  if (totalDamaged > 0 && !input.damageClass) throw new ValidationError('Informe o tipo de dano.', [{ path: 'damageClass', message: 'obrigatório' }]);
+
+  const label = formatBatchNumber(b.number);
+  const movements: MovementInput[] = [];
+  for (const it of items) {
+    const r = byProduct.get(it.product_id)!;
+    assertInspectionCloses(it.name, { quantity: it.quantity, ...r });
+    await tx`
+      insert into public.laundry_inspections (organization_id, batch_id, product_id, available, damaged, discarded, notes)
+      values (${actor.organizationId}, ${id}, ${it.product_id}, ${r.available}, ${r.damaged}, ${r.discarded}, ${r.notes ?? null})`;
+    const base = { productId: it.product_id, laundryBatchId: id, authorizedBy: 'laundry.manage' as const };
+    const key = (k: string) => `laundry:${id}:inspection:${it.product_id}:${k}`;
+    if (r.available) movements.push({ ...base, type: 'TRANSFER', quantity: r.available, from: 'IN_INSPECTION', to: 'AVAILABLE', reason: `Lote ${label}: aprovadas na inspeção`, idempotencyKey: key('ok') });
+    if (r.damaged) movements.push({ ...base, type: 'DAMAGE', quantity: r.damaged, from: 'IN_INSPECTION', to: 'DAMAGED', reason: `Lote ${label}: dano na inspeção`, idempotencyKey: key('damaged') });
+    if (r.discarded) movements.push({ ...base, type: 'DISCARD', quantity: r.discarded, from: 'IN_INSPECTION', to: 'DISCARDED', reason: `Lote ${label}: descarte na inspeção${r.notes ? ` (${r.notes})` : ''}`, idempotencyKey: key('discard') });
+  }
+  if (movements.length) await recordMovements(tx, actor, movements);
+
+  const incidents: string[] = [];
+  for (const it of items) {
+    const r = byProduct.get(it.product_id)!;
+    if (!r.damaged) continue;
+    authorize(actor, 'incident.report');
+    const description = `Lote ${label}: ${r.damaged} toalha(s) de ${it.name} com dano na inspeção.${r.notes ? ` ${r.notes}` : ''}`;
+    const inc = await createIncidentRow(tx, actor, {
+      type: 'DAMAGED', source: 'STAFF', description, productId: it.product_id, quantity: r.damaged, damageClass: input.damageClass ?? null,
+      details: { location: 'DAMAGED', laundry_batch_id: id },
+    });
+    incidents.push(inc.id);
+    alerts.push({ ...inc, type: 'DAMAGED', title: description });
+  }
+
+  await tx`update public.laundry_batches set status = 'COMPLETED', completed_at = now(), started_at = coalesce(started_at, now()) where id = ${id}`;
+  await event(tx, actor, id, b.status, 'COMPLETED');
+  const totals = input.items.reduce((a, i) => ({ available: a.available + i.available, damaged: a.damaged + i.damaged, discarded: a.discarded + i.discarded }), { available: 0, damaged: 0, discarded: 0 });
+  await recordAudit(tx, actor, actor.organizationId, { action: 'laundry.batch_completed', entityType: 'laundry_batch', entityId: id, after: { ...totals, incidents } });
+  await recordOutboxEvent(tx, {
+    organizationId: actor.organizationId,
+    eventType: 'LaundryBatchCompleted',
+    aggregateType: 'laundry_batch',
+    aggregateId: id,
+    payload: { batch_id: id, number: b.number, ...totals },
+    idempotencyKey: `LaundryBatchCompleted:${id}`,
+  });
+  return incidents;
+}
+
 /**
  * Conclui o lote com o resultado da inspeção: cada toalha vai para
  * disponível, danificada (vira ocorrência para decidir o destino) ou descarte.
  */
-export async function completeInspection(actor: UserActor, id: string, input: z.infer<typeof inspectionSchema>) {
+export async function completeInspection(actor: UserActor, id: string, input: InspectionInput) {
   authorize(actor, 'laundry.manage');
   const alerts: Alert[] = [];
   const result = await withActorTransaction(toDbContext(actor), async (tx) => {
     const b = await lockBatch(tx, id);
     if (b.status === 'COMPLETED') return { status: b.status, replayed: true, incidents: [] as string[] };
     laundryStateMachine.assertTransition(b.status, 'COMPLETED');
-    const items = await batchItems(tx, id);
-    const byProduct = new Map(input.items.map((i) => [i.productId, i]));
-    if (byProduct.size !== input.items.length) throw new ValidationError('Produto repetido.');
-    if (items.length !== byProduct.size || items.some((i) => !byProduct.has(i.product_id))) {
-      throw new ValidationError('Informe a inspeção de todos os produtos do lote.');
-    }
-    const totalDamaged = input.items.reduce((a, i) => a + i.damaged, 0);
-    if (totalDamaged > 0 && !input.damageClass) throw new ValidationError('Informe o tipo de dano.', [{ path: 'damageClass', message: 'obrigatório' }]);
-
-    const label = formatBatchNumber(b.number);
-    const movements: MovementInput[] = [];
-    for (const it of items) {
-      const r = byProduct.get(it.product_id)!;
-      assertInspectionCloses(it.name, { quantity: it.quantity, ...r });
-      await tx`
-        insert into public.laundry_inspections (organization_id, batch_id, product_id, available, damaged, discarded, notes)
-        values (${actor.organizationId}, ${id}, ${it.product_id}, ${r.available}, ${r.damaged}, ${r.discarded}, ${r.notes ?? null})`;
-      const base = { productId: it.product_id, laundryBatchId: id, authorizedBy: 'laundry.manage' as const };
-      const key = (k: string) => `laundry:${id}:inspection:${it.product_id}:${k}`;
-      if (r.available) movements.push({ ...base, type: 'TRANSFER', quantity: r.available, from: 'IN_INSPECTION', to: 'AVAILABLE', reason: `Lote ${label}: aprovadas na inspeção`, idempotencyKey: key('ok') });
-      if (r.damaged) movements.push({ ...base, type: 'DAMAGE', quantity: r.damaged, from: 'IN_INSPECTION', to: 'DAMAGED', reason: `Lote ${label}: dano na inspeção`, idempotencyKey: key('damaged') });
-      if (r.discarded) movements.push({ ...base, type: 'DISCARD', quantity: r.discarded, from: 'IN_INSPECTION', to: 'DISCARDED', reason: `Lote ${label}: descarte na inspeção${r.notes ? ` (${r.notes})` : ''}`, idempotencyKey: key('discard') });
-    }
-    if (movements.length) await recordMovements(tx, actor, movements);
-
-    const incidents: string[] = [];
-    for (const it of items) {
-      const r = byProduct.get(it.product_id)!;
-      if (!r.damaged) continue;
-      authorize(actor, 'incident.report');
-      const description = `Lote ${label}: ${r.damaged} toalha(s) de ${it.name} com dano na inspeção.${r.notes ? ` ${r.notes}` : ''}`;
-      const inc = await createIncidentRow(tx, actor, {
-        type: 'DAMAGED', source: 'STAFF', description, productId: it.product_id, quantity: r.damaged, damageClass: input.damageClass ?? null,
-        details: { location: 'DAMAGED', laundry_batch_id: id },
-      });
-      incidents.push(inc.id);
-      alerts.push({ ...inc, type: 'DAMAGED', title: description });
-    }
-
-    await tx`update public.laundry_batches set status = 'COMPLETED', completed_at = now() where id = ${id}`;
-    await event(tx, actor, id, b.status, 'COMPLETED');
-    const totals = input.items.reduce((a, i) => ({ available: a.available + i.available, damaged: a.damaged + i.damaged, discarded: a.discarded + i.discarded }), { available: 0, damaged: 0, discarded: 0 });
-    await recordAudit(tx, actor, actor.organizationId, { action: 'laundry.batch_completed', entityType: 'laundry_batch', entityId: id, after: { ...totals, incidents } });
-    await recordOutboxEvent(tx, {
-      organizationId: actor.organizationId,
-      eventType: 'LaundryBatchCompleted',
-      aggregateType: 'laundry_batch',
-      aggregateId: id,
-      payload: { batch_id: id, number: b.number, ...totals },
-      idempotencyKey: `LaundryBatchCompleted:${id}`,
-    });
+    const incidents = await applyInspection(tx, actor, b, await batchItems(tx, id), input, alerts);
     return { status: 'COMPLETED' as const, replayed: false, incidents };
+  });
+  for (const a of alerts) await openIncidentAlert(actor.organizationId, a);
+  return result;
+}
+
+// -----------------------------------------------------------------------------
+// Processo enxuto: lançar produção (o que saiu limpo e dobrado) num passo só
+// -----------------------------------------------------------------------------
+
+export const productionSchema = inspectionSchema.extend({
+  notes: z.string().trim().max(1000).nullable().optional().transform((v) => v || null),
+});
+
+/**
+ * A equipe lava, seca e dobra sem registrar etapas. Ao sair o carrinho pronto,
+ * o líder lança quantas saíram boas, com dano e para descarte. Por baixo é um
+ * lote concluído (mesmo ledger: aguardando → em lavagem → inspeção → destino),
+ * então o estoque continua fechando e a história fica auditável.
+ */
+export async function registerProduction(actor: UserActor, input: z.infer<typeof productionSchema>, idempotencyKey: string) {
+  authorize(actor, 'laundry.manage');
+  const alerts: Alert[] = [];
+  const lines = input.items.map((i) => ({ productId: i.productId, quantity: i.available + i.damaged + i.discarded }));
+  if (lines.some((l) => l.quantity === 0)) throw new ValidationError('Produto sem quantidade.');
+  const { result } = await executeIdempotent(actor, { scope: 'laundry.production', key: idempotencyKey, request: input }, async (tx) => {
+    const created = await createBatchIn(tx, actor, { items: lines, provider: null, notes: input.notes });
+    const items = await batchItems(tx, created.id);
+    await recordMovements(tx, actor, items.map((i) => ({
+      productId: i.product_id, type: 'LAUNDRY_EXIT' as const, quantity: i.quantity, from: 'IN_LAUNDRY' as const, to: 'IN_INSPECTION' as const,
+      laundryBatchId: created.id, reason: `Produção ${created.number}`, idempotencyKey: `laundry:${created.id}:exit:${i.product_id}`,
+    })));
+    const incidents = await applyInspection(tx, actor, { id: created.id, number: created.rawNumber, status: 'WAITING' }, items, input, alerts);
+    return { id: created.id, number: created.number, incidents };
   });
   for (const a of alerts) await openIncidentAlert(actor.organizationId, a);
   return result;

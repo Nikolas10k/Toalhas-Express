@@ -133,6 +133,18 @@ A reserva de um pedido é derivada do ledger: `Σ RESERVATION − Σ RESERVATION
 
 `orders.contract_id` ganhou FK. `app.contract_loss_damage_price(customer, product)` (SECURITY DEFINER) devolve o preço de perda/dano do contrato vigente para quem resolve ocorrências. RLS: equipe com `contract.read`; cliente vê só os próprios contratos não rascunho/cancelados; escrita exige `contract.manage`.
 
+## Tabelas da Fase 8B
+
+| Tabela | Notas |
+|---|---|
+| `products.kind` | `RENTAL` (toalha de aluguel, estoque) ou `LINEN` (enxoval do cliente). Trigger `towel_movements_rental_only` recusa movimento de enxoval; `products_kind_guard` impede mudar o tipo depois de haver histórico. |
+| `linen_service_orders` | OS `OS-00001`: COLLECTED → READY → DELIVERED (ou CANCELLED antes de lavar). Coleta vinculada ao atendimento da parada; `delivery_order_id` aponta o pedido de entrega. Sem DELETE. |
+| `linen_service_order_items` | Por peça: coletadas (rol, base da cobrança), já com dano na coleta, saíram prontas, entregues. Sem DELETE. |
+| `linen_service_order_events` | Histórico append-only da OS. |
+| `stop_operation_items.is_linen` | Coleta de enxoval não depende de saldo do cliente (check `stop_operation_items_collect_within_balance`). |
+
+Perfil **OPERATOR** criado em todas as organizações (e no `app.bootstrap_organization`): `admin.access`, `product.read`, `laundry.read`, `laundry.manage`, `incident.report`, `route.read`.
+
 ## Políticas RLS (resumo)
 
 - Toda política é `TO app_user` e exige `organization_id = app.current_org_id()` + vínculo ativo do ator.

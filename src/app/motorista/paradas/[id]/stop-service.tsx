@@ -23,6 +23,7 @@ import { apiFetch, describeApiError } from '@/lib/api-client';
 interface Line {
   productId: string;
   name: string;
+  kind: 'RENTAL' | 'LINEN';
   plannedDelivery: number;
   loaded: number;
   expectedCollection: number;
@@ -34,6 +35,7 @@ interface Form {
   route: { id: string; status: string };
   order: { id: string; number: string; type: string; status: string; customerName: string | null; notes: string | null };
   lines: Line[];
+  linenCatalog: { productId: string; name: string }[];
   requireProofPhoto: boolean;
   canOperate: boolean;
 }
@@ -54,19 +56,26 @@ export function StopService({ id }: { id: string }) {
   const [recipient, setRecipient] = useState('');
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const [extra, setExtra] = useState<string[]>([]);
   const q = useQuery({
     queryKey: ['stop-service', id],
     queryFn: ({ signal }) => apiFetch<Form>(`/api/driver/stops/${id}/service`, { signal }),
   });
   const entry = (l: Line): Entry =>
-    entries[l.productId] ?? { delivered: String(Math.min(l.plannedDelivery, l.loaded)), collected: String(l.expectedCollection), damaged: '0', damageClass: '' };
+    entries[l.productId] ?? {
+      delivered: String(Math.min(l.plannedDelivery, l.loaded)),
+      // Enxoval: o rol é contado na hora, sem sugestão.
+      collected: l.kind === 'LINEN' ? '' : String(l.expectedCollection),
+      damaged: '0',
+      damageClass: '',
+    };
   const set = (l: Line, patch: Partial<Entry>) => setEntries((e) => ({ ...e, [l.productId]: { ...entry(l), ...patch } }));
 
   const submit = useMutation({
     mutationFn: async () =>
-      apiFetch<{ incidents: string[] }>(`/api/driver/stops/${id}/complete`, {
+      apiFetch<{ incidents: string[]; serviceOrder?: string | null }>(`/api/driver/stops/${id}/complete`, {
         body: {
-          items: q.data!.lines.map((l) => {
+          items: allLines.map((l) => {
             const e = entry(l);
             return { productId: l.productId, delivered: num(e.delivered), collected: num(e.collected), damaged: num(e.damaged), damageClass: e.damageClass || null };
           }),
@@ -77,18 +86,31 @@ export function StopService({ id }: { id: string }) {
         },
       }),
     onSuccess: (r) => {
-      toast.success(r.incidents.length ? `Atendimento registrado com ${r.incidents.length} ocorrência(s) para a equipe.` : 'Atendimento registrado.');
+      const os = r.serviceOrder ? ` Enxoval: ${r.serviceOrder}.` : '';
+      toast.success((r.incidents.length ? `Atendimento registrado com ${r.incidents.length} ocorrência(s) para a equipe.` : 'Atendimento registrado.') + os);
       qc.invalidateQueries({ queryKey: ['driver-route'] });
       router.push(`/motorista/rotas/${q.data!.route.id}`);
     },
   });
 
+  const extraLines: Line[] = (q.data?.linenCatalog ?? [])
+    .filter((c) => extra.includes(c.productId))
+    .map((c) => ({ productId: c.productId, name: c.name, kind: 'LINEN', plannedDelivery: 0, loaded: 0, expectedCollection: 0, customerBalance: 0 }));
+  const allLines = [...(q.data?.lines ?? []), ...extraLines];
+
   if (q.isPending) return <Skeleton className="h-96 w-full" />;
   if (q.error) return <Alert variant="destructive">{describeApiError(q.error)}</Alert>;
-  const { order, lines } = q.data;
+  const { order } = q.data;
+  const lines = q.data.lines.filter((l) => l.kind === 'RENTAL');
+  const linenLines = allLines.filter((l) => l.kind === 'LINEN');
+  const addable = q.data.linenCatalog.filter((c) => !allLines.some((l) => l.productId === c.productId));
   const showDelivery = order.type !== 'COLLECTION';
   const showCollection = order.type !== 'DELIVERY' || lines.some((l) => l.customerBalance > 0);
-  const warnings = lines.flatMap((l) => {
+  const linenWarnings = linenLines.flatMap((l) => {
+    const d = num(entry(l).delivered);
+    return d < l.plannedDelivery ? [`${l.name}: ${l.plannedDelivery - d} peça(s) de enxoval voltarão com você`] : [];
+  });
+  const warnings = [...linenWarnings, ...lines.flatMap((l) => {
     const e = entry(l);
     const out: string[] = [];
     if (num(e.collected) < l.expectedCollection) out.push(`${l.name}: ${l.expectedCollection - num(e.collected)} ficarão com o cliente`);
@@ -96,10 +118,11 @@ export function StopService({ id }: { id: string }) {
     if (num(e.delivered) < l.plannedDelivery) out.push(`${l.name}: ${l.plannedDelivery - num(e.delivered)} voltarão com você`);
     if (num(e.damaged) > 0) out.push(`${l.name}: ${num(e.damaged)} com dano`);
     return out;
-  });
-  const moved = lines.some((l) => num(entry(l).delivered) > 0 || num(entry(l).collected) > 0);
-  const invalid = lines.some((l) => {
+  })];
+  const moved = allLines.some((l) => num(entry(l).delivered) > 0 || num(entry(l).collected) > 0);
+  const invalid = allLines.some((l) => {
     const e = entry(l);
+    if (l.kind === 'LINEN') return num(e.delivered) > l.loaded || num(e.damaged) > num(e.collected);
     return num(e.delivered) > l.loaded || num(e.collected) > l.customerBalance || num(e.damaged) > num(e.collected) || (num(e.damaged) > 0 && !e.damageClass);
   });
   const missingProof = moved && (recipient.trim().length < 2 || (q.data.requireProofPhoto && photos.length === 0));
@@ -164,6 +187,52 @@ export function StopService({ id }: { id: string }) {
             </Card>
           );
         })}
+
+        {((linenLines.length > 0 || addable.length > 0) && order.type !== 'DELIVERY') || linenLines.some((l) => l.plannedDelivery > 0) ? (
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <div>
+                <p className="font-medium">Enxoval do cliente</p>
+                <p className="text-xs text-muted-foreground">Roupa do hotel/spa. Conte o rol peça por peça: é o que será cobrado.</p>
+              </div>
+              {linenLines.map((l) => {
+                const e = entry(l);
+                return (
+                  <div key={l.productId} className="space-y-2 rounded-md border p-3">
+                    <p className="text-sm font-medium">{l.name}</p>
+                    {l.plannedDelivery > 0 && (
+                      <Field id={`d-${l.productId}`} label={`Entregues limpas (previsto ${l.plannedDelivery})`}>
+                        <Input id={`d-${l.productId}`} type="number" inputMode="numeric" min={0} max={l.loaded} className="h-12 text-lg" value={e.delivered} onChange={(ev) => set(l, { delivered: ev.target.value })} />
+                      </Field>
+                    )}
+                    {order.type !== 'DELIVERY' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field id={`c-${l.productId}`} label="Coletadas sujas (rol)">
+                          <Input id={`c-${l.productId}`} type="number" inputMode="numeric" min={0} className="h-12 text-lg" value={e.collected} onChange={(ev) => set(l, { collected: ev.target.value })} />
+                        </Field>
+                        <Field id={`x-${l.productId}`} label="Já vieram com dano">
+                          <Input id={`x-${l.productId}`} type="number" inputMode="numeric" min={0} className="h-12" value={e.damaged} onChange={(ev) => set(l, { damaged: ev.target.value })} />
+                        </Field>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {order.type !== 'DELIVERY' && addable.length > 0 && (
+                <Field id="add-linen" label="Adicionar peça de enxoval">
+                  <Select id="add-linen" className="h-12" value="" onChange={(ev) => ev.target.value && setExtra([...extra, ev.target.value])}>
+                    <option value="">Escolha a peça…</option>
+                    {addable.map((c) => (
+                      <option key={c.productId} value={c.productId}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
 
         {warnings.length > 0 && (
           <Alert>
