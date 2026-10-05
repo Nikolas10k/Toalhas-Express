@@ -7,6 +7,8 @@ export interface NavItem {
   permission: Permission;
   /** Fase do IMPLEMENTATION_PLAN em que o módulo é entregue. */
   phase: number;
+  /** Módulo ainda não entregue (cai na página "em implementação"). */
+  planned?: boolean;
 }
 
 export interface NavSection {
@@ -55,22 +57,22 @@ export const ADMIN_NAV: NavSection[] = [
   {
     label: 'Financeiro',
     items: [
-      { label: 'Visão geral', href: '/admin/financeiro', permission: 'finance.read', phase: 9 },
-      { label: 'Contas a receber', href: '/admin/financeiro/contas-a-receber', permission: 'finance.read', phase: 9 },
-      { label: 'Cobranças', href: '/admin/financeiro/cobrancas', permission: 'finance.read', phase: 9 },
-      { label: 'Pagamentos', href: '/admin/financeiro/pagamentos', permission: 'finance.read', phase: 9 },
-      { label: 'Inadimplência', href: '/admin/financeiro/inadimplencia', permission: 'finance.read', phase: 9 },
-      { label: 'Conciliação', href: '/admin/financeiro/conciliacao', permission: 'finance.reconcile', phase: 10 },
+      { label: 'Visão geral', href: '/admin/financeiro', permission: 'finance.read', phase: 9, planned: true },
+      { label: 'Contas a receber', href: '/admin/financeiro/contas-a-receber', permission: 'finance.read', phase: 9, planned: true },
+      { label: 'Cobranças', href: '/admin/financeiro/cobrancas', permission: 'finance.read', phase: 9, planned: true },
+      { label: 'Pagamentos', href: '/admin/financeiro/pagamentos', permission: 'finance.read', phase: 9, planned: true },
+      { label: 'Inadimplência', href: '/admin/financeiro/inadimplencia', permission: 'finance.read', phase: 9, planned: true },
+      { label: 'Conciliação', href: '/admin/financeiro/conciliacao', permission: 'finance.reconcile', phase: 10, planned: true },
     ],
   },
-  { label: '', items: [{ label: 'Relatórios', href: '/admin/relatorios', permission: 'reports.read', phase: 12 }] },
+  { label: '', items: [{ label: 'Relatórios', href: '/admin/relatorios', permission: 'reports.read', phase: 12, planned: true }] },
   {
     label: 'Administração',
     items: [
       { label: 'Usuários', href: '/admin/administracao/usuarios', permission: 'users.read', phase: 1 },
       { label: 'Permissões', href: '/admin/administracao/permissoes', permission: 'users.read', phase: 1 },
-      { label: 'Integrações', href: '/admin/administracao/integracoes', permission: 'integrations.manage', phase: 11 },
-      { label: 'Automações', href: '/admin/administracao/automacoes', permission: 'automations.manage', phase: 11 },
+      { label: 'Integrações', href: '/admin/administracao/integracoes', permission: 'integrations.manage', phase: 11, planned: true },
+      { label: 'Automações', href: '/admin/administracao/automacoes', permission: 'automations.manage', phase: 11, planned: true },
       { label: 'Auditoria', href: '/admin/administracao/auditoria', permission: 'audit.read', phase: 1 },
       { label: 'Configurações', href: '/admin/administracao/configuracoes', permission: 'organization.read', phase: 13 },
     ],

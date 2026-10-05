@@ -25,11 +25,12 @@ export function AdminSidebar({ sections }: { sections: NavSection[] }) {
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'block rounded-md px-3 py-1.5 transition-colors hover:bg-accent',
+                      'flex items-center justify-between gap-2 rounded-md px-3 py-2.5 transition-colors hover:bg-accent lg:py-1.5',
                       active && 'bg-accent font-medium text-accent-foreground',
                     )}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
+                    {item.planned && <span className="text-xs text-muted-foreground">em breve</span>}
                   </Link>
                 </li>
               );

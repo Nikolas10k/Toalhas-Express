@@ -1,37 +1,46 @@
+import { ChevronRight } from 'lucide-react';
 import type { Metadata } from 'next';
+import Link from 'next/link';
+import { ADMIN_NAV } from '@/components/admin/nav-config';
 import { PageHeader } from '@/components/admin/page-header';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { requirePageActor } from '@/server/auth/guards';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
-const CARDS = [
-  { title: 'Pedidos do dia', phase: 4 },
-  { title: 'Entregas e coletas', phase: 6 },
-  { title: 'Rotas ativas', phase: 5 },
-  { title: 'Estoque por estado', phase: 3 },
-  { title: 'Perdas e danos', phase: 6 },
-  { title: 'Faturamento e recebimentos', phase: 9 },
-  { title: 'Vencidos e inadimplentes', phase: 9 },
-  { title: 'Alertas operacionais', phase: 12 },
-];
+/** Indicadores chegam na Fase 12; até lá, atalhos para os módulos já entregues. */
+export default async function AdminDashboard() {
+  const actor = await requirePageActor('admin.access', '/admin');
+  const sections = ADMIN_NAV.map((s) => ({
+    label: s.label || 'Geral',
+    items: s.items.filter((i) => i.href !== '/admin' && !i.planned && actor.permissions.has(i.permission)),
+  })).filter((s) => s.items.length > 0);
 
-export default function AdminDashboard() {
   return (
     <>
-      <PageHeader title="Dashboard" description="Visão geral da operação." />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {CARDS.map((c) => (
-          <Card key={c.title}>
-            <CardHeader>
-              <CardTitle className="text-base">{c.title}</CardTitle>
-              <CardDescription>Indicador disponível a partir da Fase {c.phase}.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold text-muted-foreground" aria-label="Sem dados">
-                —
-              </p>
-            </CardContent>
-          </Card>
+      <PageHeader title="Dashboard" description="Acesso rápido aos módulos da operação." />
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+        {sections.map((section) => (
+          <section key={section.label} aria-labelledby={`atalhos-${section.label}`}>
+            <h2
+              id={`atalhos-${section.label}`}
+              className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              {section.label}
+            </h2>
+            <ul className="divide-y rounded-lg border bg-card">
+              {section.items.map((item) => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium transition-colors hover:bg-accent"
+                  >
+                    {item.label}
+                    <ChevronRight aria-hidden className="size-4 text-muted-foreground" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
       </div>
     </>
